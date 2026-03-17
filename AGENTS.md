@@ -80,6 +80,7 @@ Lower priority:
 - `src/context/noise-canceler.js`: scoring, deduplication, compression
 - `src/learning/mentor-loop.js`: teaching packet builder
 - `skills/`: language-specific and workflow-specific teaching skills
+- `examples/typescript-backend/`: real TypeScript backend vertical for middleware/auth flows
 
 ## Current Runtime Constraint
 

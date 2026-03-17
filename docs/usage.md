@@ -52,6 +52,9 @@ Recommended scripts:
 - `cmd /c npm.cmd run playground:readme`
 - `cmd /c npm.cmd run playground:recall`
 - `cmd /c npm.cmd run playground:recall:debug`
+- `cmd /c npm.cmd run vertical:ts:teach`
+- `cmd /c npm.cmd run vertical:ts:teach:memory`
+- `cmd /c npm.cmd run vertical:ts:readme`
 
 If PowerShell blocks `npm.ps1`, use `cmd /c npm.cmd run ...` or call the raw `node src/cli.js ...` commands shown below.
 
@@ -129,6 +132,31 @@ What happens internally:
 3. it inspects project metadata and imports
 4. it infers which concepts are required to understand the code
 5. it writes a markdown guide that lists dependencies, concepts, reading order, and data flow
+
+## TypeScript backend vertical
+
+There is now a realistic mini-workspace at `examples/typescript-backend`.
+
+Use it when you want a reproducible backend scenario with:
+
+- TypeScript middleware
+- route handler
+- related test
+- ADR/spec
+- logs and stale chat noise
+
+Deterministic mode:
+
+```bash
+node src/cli.js teach --workspace examples/typescript-backend --task "Harden auth middleware" --objective "Teach request-boundary validation in a TypeScript server" --changed-files "src/auth/middleware.ts,test/auth/middleware.test.ts" --project typescript-backend-vertical --no-recall --format text
+```
+
+Memory-backed mode:
+
+```bash
+node scripts/seed-typescript-vertical-memory.js
+node src/cli.js teach --workspace examples/typescript-backend --task "Harden auth middleware" --objective "Teach request-boundary validation in a TypeScript server" --changed-files "src/auth/middleware.ts,test/auth/middleware.test.ts" --project typescript-backend-vertical --recall-query "auth validation order" --token-budget 520 --max-chunks 6 --format text
+```
 
 ## Command 5: Recall memory from Engram
 

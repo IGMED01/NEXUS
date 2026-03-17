@@ -440,6 +440,32 @@ run("cli teach returns a teaching packet summary", async () => {
   assert.doesNotMatch(result.stdout, /legacy-chat from/);
 });
 
+run("cli teach works end-to-end on the TypeScript backend vertical", async () => {
+  const result = await runCli([
+    "teach",
+    "--workspace",
+    "examples/typescript-backend",
+    "--task",
+    "Harden auth middleware",
+    "--objective",
+    "Teach request-boundary validation in a TypeScript server",
+    "--changed-files",
+    "src/auth/middleware.ts,test/auth/middleware.test.ts",
+    "--project",
+    "typescript-backend-vertical",
+    "--no-recall",
+    "--format",
+    "json"
+  ]);
+
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(result.exitCode, 0);
+  assert.equal(parsed.teachingSections.codeFocus.source, "src/auth/middleware.ts");
+  assert.equal(parsed.teachingSections.relatedTests[0].source, "test/auth/middleware.test.ts");
+  assert.equal(parsed.selectedContext.some((chunk) => chunk.source === "logs/server.log"), false);
+  assert.equal(parsed.selectedContext.some((chunk) => chunk.source === "chat/history.md"), false);
+});
+
 run("cli teach debug exposes recall ids and selection diagnostics", async () => {
   const fakeClient = {
     async recallContext() {
@@ -515,6 +541,15 @@ run("workspace scanning collects repository chunks", async () => {
   assert.ok(result.payload.chunks.some((chunk) => chunk.source === "package.json"));
 });
 
+run("workspace scanning understands the TypeScript backend vertical", async () => {
+  const result = await loadWorkspaceChunks("examples/typescript-backend");
+
+  assert.ok(result.payload.chunks.some((chunk) => chunk.source === "src/auth/middleware.ts"));
+  assert.ok(result.payload.chunks.some((chunk) => chunk.source === "test/auth/middleware.test.ts"));
+  assert.ok(result.payload.chunks.some((chunk) => chunk.source === "logs/server.log"));
+  assert.ok(result.payload.chunks.some((chunk) => chunk.source === "chat/history.md"));
+});
+
 run("readme generator infers concepts and reading order", async () => {
   const workspace = await loadWorkspaceChunks(".");
   const result = await buildLearningReadme({
@@ -529,6 +564,21 @@ run("readme generator infers concepts and reading order", async () => {
   assert.match(result.markdown, /## Core Concepts To Learn First/);
   assert.match(result.markdown, /Node\.js/);
   assert.match(result.markdown, /src\/cli\.js/);
+});
+
+run("readme generator explains dependencies for the TypeScript backend vertical", async () => {
+  const workspace = await loadWorkspaceChunks("examples/typescript-backend");
+  const result = await buildLearningReadme({
+    title: "README.LEARN",
+    projectRoot: "examples/typescript-backend",
+    focus: "typescript backend auth middleware request boundary",
+    chunks: workspace.payload.chunks
+  });
+
+  assert.match(result.markdown, /TypeScript/i);
+  assert.match(result.markdown, /Vitest/i);
+  assert.match(result.markdown, /Zod/i);
+  assert.match(result.markdown, /src\/auth\/middleware\.ts/);
 });
 
 run("cli readme writes markdown output", async () => {

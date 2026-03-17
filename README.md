@@ -33,7 +33,9 @@ Full analysis lives in `docs/repo-analysis.md`.
 - `benchmark/selector-benchmark.json`: fixed benchmark cases for context selection quality
 - `docs/context-noise-cancellation.md`: design of the context filtering system
 - `docs/benchmark.md`: benchmark method and metrics
+- `docs/typescript-backend-vertical.md`: end-to-end TypeScript backend demo flow
 - `docs/usage.md`: CLI usage and input contract
+- `examples/typescript-backend/`: realistic TypeScript middleware workspace
 - `src/analysis/readme-generator.js`: generated learning README builder
 - `src/context/noise-canceler.js`: prototype signal-over-noise selector
 - `src/learning/mentor-loop.js`: learning packet builder
@@ -47,6 +49,7 @@ Full analysis lives in `docs/repo-analysis.md`.
 node test/run-tests.js
 npm run benchmark
 npm run benchmark:recall
+npm run vertical:ts:teach
 ```
 
 ## Example usage

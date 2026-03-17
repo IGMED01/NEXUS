@@ -9,7 +9,8 @@ const IGNORED_DIRS = new Set([
   "node_modules",
   "dist",
   "build",
-  "coverage"
+  "coverage",
+  "test-output"
 ]);
 
 const ALLOWED_EXTENSIONS = new Set([
@@ -21,6 +22,7 @@ const ALLOWED_EXTENSIONS = new Set([
   ".go",
   ".py",
   ".json",
+  ".log",
   ".md",
   ".txt",
   ".toml",
@@ -32,6 +34,11 @@ const MAX_FILE_CHARS = 32000;
 
 function toPosixPath(value) {
   return value.replace(/\\/g, "/");
+}
+
+function shouldIgnoreFile(source) {
+  const normalized = toPosixPath(source);
+  return normalized.endsWith("README.LEARN.md");
 }
 
 function classifyKind(source) {
@@ -105,6 +112,10 @@ async function walk(rootPath, currentPath, files) {
 
     const absolutePath = resolve(currentPath, entry.name);
     const source = toPosixPath(relative(rootPath, absolutePath));
+
+    if (shouldIgnoreFile(source)) {
+      continue;
+    }
 
     files.push({
       absolutePath,
