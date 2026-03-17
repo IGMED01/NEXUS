@@ -678,7 +678,8 @@ run("cli doctor emits runtime metadata in json mode", async () => {
   assert.equal(parsed.command, "doctor");
   assert.equal(typeof parsed.meta.durationMs, "number");
   assert.equal(parsed.meta.durationMs >= 0, true);
-  assert.match(parsed.meta.cwd, /Nueva carpeta/);
+  assert.equal(typeof parsed.meta.cwd, "string");
+  assert.equal(parsed.meta.cwd.length > 0, true);
   assert.ok(parsed.checks.length >= 1);
 });
 
@@ -1071,7 +1072,8 @@ run("cli recall uses config defaults and emits a stable JSON contract", async ()
   assert.equal(parsed.config.found, true);
   assert.match(parsed.config.path, /cli-config\.json/);
   assert.equal(typeof parsed.meta.durationMs, "number");
-  assert.match(parsed.meta.cwd, /Nueva carpeta/);
+  assert.equal(typeof parsed.meta.cwd, "string");
+  assert.equal(parsed.meta.cwd.length > 0, true);
   assert.equal(parsed.project, "configured-project");
   assert.equal(seen.query, "auth middleware");
   assert.equal(seen.options?.project, "configured-project");
