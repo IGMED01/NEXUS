@@ -18,7 +18,8 @@ export function buildLearningPacket(input) {
     tokenBudget,
     maxChunks,
     minScore,
-    sentenceBudget
+    sentenceBudget,
+    changedFiles
   });
 
   return {

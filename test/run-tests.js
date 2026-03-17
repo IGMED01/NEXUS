@@ -136,6 +136,166 @@ run("builds a learning packet with teaching scaffolding", () => {
   assert.equal(packet.teachingChecklist.length, 4);
 });
 
+run("implementation flows prioritize changed code and related tests over generic docs", () => {
+  const packet = buildLearningPacket({
+    task: "Improve CLI recall",
+    objective: "Teach how changed files drive the ranking",
+    changedFiles: ["src/cli/app.js"],
+    tokenBudget: 90,
+    maxChunks: 2,
+    chunks: [
+      {
+        id: "readme",
+        source: "README.md",
+        kind: "spec",
+        content:
+          "The CLI supports recall, remember, and close commands and explains how the system works.",
+        certainty: 0.96,
+        recency: 0.92,
+        teachingValue: 0.95,
+        priority: 0.93
+      },
+      {
+        id: "usage",
+        source: "docs/usage.md",
+        kind: "spec",
+        content:
+          "Usage instructions explain teach, recall, and how the command line uses memory and changed files.",
+        certainty: 0.95,
+        recency: 0.9,
+        teachingValue: 0.94,
+        priority: 0.9
+      },
+      {
+        id: "cli-app",
+        source: "src/cli/app.js",
+        kind: "code",
+        content:
+          "The CLI app parses teach options, attaches recalled memory, and builds the learning packet.",
+        certainty: 0.94,
+        recency: 0.88,
+        teachingValue: 0.82,
+        priority: 0.92
+      },
+      {
+        id: "cli-test",
+        source: "test/cli/app.test.js",
+        kind: "test",
+        content:
+          "Tests verify the CLI app prioritizes recalled memory, changed files, and teaching packet output.",
+        certainty: 0.93,
+        recency: 0.86,
+        teachingValue: 0.84,
+        priority: 0.85
+      }
+    ]
+  });
+
+  assert.equal(packet.selectedContext[0].source, "src/cli/app.js");
+  assert.equal(packet.selectedContext.some((chunk) => chunk.source === "test/cli/app.test.js"), true);
+  assert.equal(packet.selectedContext.some((chunk) => chunk.source === "README.md"), false);
+});
+
+run("tests that map directly to changed files outrank generic test runners", () => {
+  const result = selectContextWindow(
+    [
+      {
+        id: "generic-runner",
+        source: "test/run-tests.js",
+        kind: "test",
+        content:
+          "Runs portable checks for the whole repository and prints pass or fail messages.",
+        certainty: 0.92,
+        recency: 0.82,
+        teachingValue: 0.72,
+        priority: 0.74
+      },
+      {
+        id: "related-test",
+        source: "test/cli/app.test.js",
+        kind: "test",
+        content:
+          "Verifies CLI app teach flow, memory recall, changed files, and packet ranking behavior.",
+        certainty: 0.93,
+        recency: 0.86,
+        teachingValue: 0.84,
+        priority: 0.86
+      },
+      {
+        id: "changed-code",
+        source: "src/cli/app.js",
+        kind: "code",
+        content:
+          "The CLI app integrates teach recall and passes changed files into the selector.",
+        certainty: 0.95,
+        recency: 0.9,
+        teachingValue: 0.82,
+        priority: 0.94
+      }
+    ],
+    {
+      focus: "cli teach recall changed files selector",
+      changedFiles: ["src/cli/app.js"],
+      tokenBudget: 90,
+      maxChunks: 2
+    }
+  );
+
+  assert.equal(result.selected[0].id, "changed-code");
+  assert.equal(result.selected[1].id, "related-test");
+  assert.equal(result.selected.some((chunk) => chunk.id === "generic-runner"), false);
+});
+
+run("implementation flows penalize session-close memory against technical memory", () => {
+  const result = selectContextWindow(
+    [
+      {
+        id: "close-note",
+        source: "engram://learning-context-system/3",
+        kind: "memory",
+        content:
+          "## Session Close Summary. - Summary: Integrated recall. - Learned: Memory and context are different. - Next: Improve the selector.",
+        certainty: 0.88,
+        recency: 0.95,
+        teachingValue: 0.82,
+        priority: 0.84
+      },
+      {
+        id: "arch-memory",
+        source: "engram://learning-context-system/4",
+        kind: "memory",
+        content:
+          "CLI Engram integration. Added an Engram adapter and new CLI commands recall, remember, and close for durable memory.",
+        certainty: 0.92,
+        recency: 0.93,
+        teachingValue: 0.9,
+        priority: 0.9
+      },
+      {
+        id: "changed-code",
+        source: "src/cli/app.js",
+        kind: "code",
+        content:
+          "The CLI app integrates recall before building the teaching packet and passes changed files into the selector.",
+        certainty: 0.95,
+        recency: 0.9,
+        teachingValue: 0.85,
+        priority: 0.94
+      }
+    ],
+    {
+      focus: "cli recall teaching packet changed files",
+      changedFiles: ["src/cli/app.js"],
+      tokenBudget: 80,
+      maxChunks: 2
+    }
+  );
+
+  assert.equal(result.selected.some((chunk) => chunk.id === "changed-code"), true);
+  assert.equal(result.selected.some((chunk) => chunk.id === "arch-memory"), true);
+  assert.equal(result.selected.some((chunk) => chunk.id === "close-note"), false);
+});
+
 run("validates chunk file input and rejects invalid kinds", () => {
   assert.throws(
     () =>
