@@ -29,7 +29,9 @@ Full analysis lives in `docs/repo-analysis.md`.
 ## Project layout
 
 - `AGENTS.md`: operating contract for future agents
+- `benchmark/selector-benchmark.json`: fixed benchmark cases for context selection quality
 - `docs/context-noise-cancellation.md`: design of the context filtering system
+- `docs/benchmark.md`: benchmark method and metrics
 - `docs/usage.md`: CLI usage and input contract
 - `src/analysis/readme-generator.js`: generated learning README builder
 - `src/context/noise-canceler.js`: prototype signal-over-noise selector
@@ -42,6 +44,7 @@ Full analysis lives in `docs/repo-analysis.md`.
 
 ```bash
 node test/run-tests.js
+npm run benchmark
 ```
 
 ## Example usage

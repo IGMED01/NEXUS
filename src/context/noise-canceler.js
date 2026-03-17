@@ -371,6 +371,8 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
   const sourceAffinity = sourceAffinityScore(chunk.source, changedFiles);
   const changeAnchor = changeAnchorScore(chunk.source, changedFiles);
   const relatedTestBoost = testRelationshipScore(chunk.source, changedFiles);
+  const changeAnchorWeight =
+    chunk.kind === "code" ? 0.16 : chunk.kind === "test" ? 0.09 : 0.12;
   const sourcePenalty = genericSourcePenalty(chunk.source, changedFiles);
   const narrativePenalty = narrativeMemoryPenalty(chunk);
   const implementationFit = implementationFitScore(chunk, changedFiles);
@@ -393,7 +395,7 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
     density * 0.03 +
     sourceAffinity * 0.1 +
     implementationFit * 0.12 +
-    changeAnchor * 0.12 +
+    changeAnchor * changeAnchorWeight +
     relatedTestBoost * 0.04;
 
   const penalty = redundancy * 0.22 + sourcePenalty * 0.22 + narrativePenalty * 0.18;
@@ -411,6 +413,7 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
       density,
       sourceAffinity,
       changeAnchor,
+      changeAnchorWeight,
       relatedTestBoost,
       sourcePenalty,
       implementationFit,

@@ -1,0 +1,234 @@
+{
+  "cases": [
+    {
+      "name": "auth middleware implementation prefers code and test over noise",
+      "mode": "teach",
+      "input": {
+        "task": "Improve auth middleware",
+        "objective": "Teach why validation runs before route handlers",
+        "focus": "jwt middleware expired session validation order",
+        "changedFiles": ["src/auth/middleware.ts", "test/auth/middleware.test.ts"],
+        "tokenBudget": 120,
+        "maxChunks": 3,
+        "chunks": [
+          {
+            "id": "auth-code",
+            "source": "src/auth/middleware.ts",
+            "kind": "code",
+            "content": "Authentication middleware validates the bearer token first and returns 401 for expired sessions before business logic runs.",
+            "certainty": 0.95,
+            "recency": 0.9,
+            "teachingValue": 0.86,
+            "priority": 0.96
+          },
+          {
+            "id": "auth-test",
+            "source": "test/auth/middleware.test.ts",
+            "kind": "test",
+            "content": "Tests assert that expired tokens never reach route handlers and that the middleware returns 401 consistently.",
+            "certainty": 0.93,
+            "recency": 0.88,
+            "teachingValue": 0.84,
+            "priority": 0.9
+          },
+          {
+            "id": "auth-spec",
+            "source": "docs/auth-order.md",
+            "kind": "spec",
+            "content": "Authentication should fail fast before business logic to reduce wasted work.",
+            "certainty": 0.9,
+            "recency": 0.82,
+            "teachingValue": 0.78,
+            "priority": 0.8
+          },
+          {
+            "id": "chat-noise",
+            "source": "chat/history.txt",
+            "kind": "chat",
+            "content": "Maybe revisit CSS modules later, maybe auth, maybe API naming, repeated several times.",
+            "certainty": 0.3,
+            "recency": 0.2,
+            "teachingValue": 0.08,
+            "priority": 0.1
+          },
+          {
+            "id": "log-noise",
+            "source": "logs/server.log",
+            "kind": "log",
+            "content": "INFO start INFO start debug trace debug trace request heartbeat request heartbeat.",
+            "certainty": 0.2,
+            "recency": 0.4,
+            "teachingValue": 0.05,
+            "priority": 0.05
+          }
+        ]
+      },
+      "expectations": {
+        "mustSelect": ["auth-code", "auth-test"],
+        "mustExclude": ["chat-noise", "log-noise"],
+        "relevant": ["auth-code", "auth-test", "auth-spec"],
+        "topPrefix": ["auth-code", "auth-test"],
+        "minRelevantRatio": 0.66
+      }
+    },
+    {
+      "name": "cli implementation prefers changed code and related test over readme",
+      "mode": "teach",
+      "input": {
+        "task": "Integrate Engram recall",
+        "objective": "Teach how changed files drive teach ranking",
+        "focus": "cli recall changed files ranking",
+        "changedFiles": ["src/cli/app.js"],
+        "tokenBudget": 110,
+        "maxChunks": 3,
+        "chunks": [
+          {
+            "id": "cli-app",
+            "source": "src/cli/app.js",
+            "kind": "code",
+            "content": "The CLI app attaches Engram recall to teach and passes changed files into the selector.",
+            "certainty": 0.95,
+            "recency": 0.9,
+            "teachingValue": 0.84,
+            "priority": 0.95
+          },
+          {
+            "id": "cli-test",
+            "source": "test/cli/app.test.js",
+            "kind": "test",
+            "content": "Tests validate the teach command, memory recall injection, and changed-files ranking behavior.",
+            "certainty": 0.94,
+            "recency": 0.87,
+            "teachingValue": 0.85,
+            "priority": 0.9
+          },
+          {
+            "id": "readme",
+            "source": "README.md",
+            "kind": "spec",
+            "content": "The README explains the project goals, commands, and memory features.",
+            "certainty": 0.97,
+            "recency": 0.95,
+            "teachingValue": 0.95,
+            "priority": 0.94
+          },
+          {
+            "id": "runner",
+            "source": "test/run-tests.js",
+            "kind": "test",
+            "content": "Runs portable checks across the repository and reports failures.",
+            "certainty": 0.92,
+            "recency": 0.82,
+            "teachingValue": 0.7,
+            "priority": 0.72
+          }
+        ]
+      },
+      "expectations": {
+        "mustSelect": ["cli-app", "cli-test"],
+        "mustExclude": ["readme"],
+        "relevant": ["cli-app", "cli-test"],
+        "topPrefix": ["cli-app", "cli-test"],
+        "minRelevantRatio": 0.66
+      }
+    },
+    {
+      "name": "narrative session memory loses against technical memory and code",
+      "mode": "select",
+      "input": {
+        "focus": "cli recall teaching packet changed files",
+        "changedFiles": ["src/cli/app.js"],
+        "tokenBudget": 90,
+        "maxChunks": 2,
+        "chunks": [
+          {
+            "id": "close-note",
+            "source": "engram://learning-context-system/3",
+            "kind": "memory",
+            "content": "## Session Close Summary. - Summary: Integrated recall. - Learned: Memory and context are different. - Next: Improve the selector.",
+            "certainty": 0.88,
+            "recency": 0.95,
+            "teachingValue": 0.82,
+            "priority": 0.84
+          },
+          {
+            "id": "arch-memory",
+            "source": "engram://learning-context-system/4",
+            "kind": "memory",
+            "content": "CLI Engram integration. Added an Engram adapter and recall flow for durable memory.",
+            "certainty": 0.92,
+            "recency": 0.93,
+            "teachingValue": 0.9,
+            "priority": 0.9
+          },
+          {
+            "id": "changed-code",
+            "source": "src/cli/app.js",
+            "kind": "code",
+            "content": "The CLI app integrates recall before building the teaching packet and passes changed files into the selector.",
+            "certainty": 0.95,
+            "recency": 0.9,
+            "teachingValue": 0.85,
+            "priority": 0.94
+          }
+        ]
+      },
+      "expectations": {
+        "mustSelect": ["changed-code", "arch-memory"],
+        "mustExclude": ["close-note"],
+        "relevant": ["changed-code", "arch-memory"],
+        "topPrefix": ["changed-code"],
+        "minRelevantRatio": 1
+      }
+    },
+    {
+      "name": "generic runner stays below directly related test",
+      "mode": "select",
+      "input": {
+        "focus": "cli teach recall changed files selector",
+        "changedFiles": ["src/cli/app.js"],
+        "tokenBudget": 90,
+        "maxChunks": 2,
+        "chunks": [
+          {
+            "id": "generic-runner",
+            "source": "test/run-tests.js",
+            "kind": "test",
+            "content": "Runs portable checks for the whole repository and prints pass or fail messages.",
+            "certainty": 0.92,
+            "recency": 0.82,
+            "teachingValue": 0.72,
+            "priority": 0.74
+          },
+          {
+            "id": "related-test",
+            "source": "test/cli/app.test.js",
+            "kind": "test",
+            "content": "Verifies CLI app teach flow, memory recall, changed files, and packet ranking behavior.",
+            "certainty": 0.93,
+            "recency": 0.86,
+            "teachingValue": 0.84,
+            "priority": 0.86
+          },
+          {
+            "id": "changed-code",
+            "source": "src/cli/app.js",
+            "kind": "code",
+            "content": "The CLI app integrates teach recall and passes changed files into the selector.",
+            "certainty": 0.95,
+            "recency": 0.9,
+            "teachingValue": 0.82,
+            "priority": 0.94
+          }
+        ]
+      },
+      "expectations": {
+        "mustSelect": ["changed-code", "related-test"],
+        "mustExclude": ["generic-runner"],
+        "relevant": ["changed-code", "related-test"],
+        "topPrefix": ["changed-code", "related-test"],
+        "minRelevantRatio": 1
+      }
+    }
+  ]
+}
