@@ -1,16 +1,20 @@
-// @ts-check
+﻿// @ts-check
 
 import { buildLearningReadme } from "../analysis/readme-generator.js";
 import { buildCliJsonContract } from "../contracts/cli-contracts.js";
+import { defaultProjectConfig } from "../contracts/config-contracts.js";
 import { selectContextWindow } from "../context/noise-canceler.js";
-import { buildLearningPacket } from "../learning/mentor-loop.js";
-import { createEngramClient } from "../memory/engram-client.js";
-import { resolveTeachRecall } from "../memory/teach-recall.js";
 import { loadProjectConfig } from "../io/config-file.js";
 import { loadChunkFile } from "../io/json-file.js";
 import { writeTextFile } from "../io/text-file.js";
 import { loadWorkspaceChunks } from "../io/workspace-chunks.js";
+import { buildLearningPacket } from "../learning/mentor-loop.js";
+import { createEngramClient } from "../memory/engram-client.js";
+import { resolveTeachRecall } from "../memory/teach-recall.js";
+import { initProjectConfig, runProjectDoctor } from "../system/project-ops.js";
 import {
+  formatDoctorResultAsText,
+  formatInitResultAsText,
   formatLearningPacketAsText,
   formatMemoryRecallAsText,
   formatMemoryWriteAsText,
@@ -85,7 +89,7 @@ function getContentOption(options) {
   const value = options.content ?? options.message;
 
   if (!value || value === "true") {
-    throw new Error("Missing required option --content <text> (or --message <text>).");
+    throw new Error("Missing required option --content <text> (or --message <text>).\n");
   }
 
   return value;
@@ -210,6 +214,32 @@ function buildDegradedRecallResult(engram, input, error) {
   };
 }
 
+async function safeLoadConfig(command, rawOptions) {
+  try {
+    return {
+      loadedConfig: await loadProjectConfig({
+        cwd: process.cwd(),
+        explicitPath: rawOptions.config,
+        workspaceHint: rawOptions.workspace
+      }),
+      configLoadError: ""
+    };
+  } catch (error) {
+    if (command !== "doctor") {
+      throw error;
+    }
+
+    return {
+      loadedConfig: {
+        found: false,
+        path: rawOptions.config ?? "",
+        config: defaultProjectConfig()
+      },
+      configLoadError: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
 /**
  * @param {string[]} argv
  * @param {{ engramClient?: ReturnType<typeof createEngramClient> }} [dependencies]
@@ -224,11 +254,64 @@ export async function runCli(argv, dependencies = {}) {
     };
   }
 
-  const loadedConfig = await loadProjectConfig({
-    cwd: process.cwd(),
-    explicitPath: rawOptions.config,
-    workspaceHint: rawOptions.workspace
-  });
+  if (
+    command !== "select" &&
+    command !== "teach" &&
+    command !== "readme" &&
+    command !== "recall" &&
+    command !== "remember" &&
+    command !== "close" &&
+    command !== "doctor" &&
+    command !== "init"
+  ) {
+    return {
+      exitCode: 1,
+      stderr: `Unknown command '${command}'.\n\n${usageText()}`
+    };
+  }
+
+  if (command === "init") {
+    const result = await initProjectConfig({
+      cwd: process.cwd(),
+      configPath: rawOptions.config,
+      force: rawOptions.force === "true"
+    });
+    const format = rawOptions.format === "json" ? "json" : "text";
+
+    return {
+      exitCode: 0,
+      stdout:
+        format === "json"
+          ? serialize(buildCliJsonContract("init", result))
+          : formatInitResultAsText(result)
+    };
+  }
+
+  const { loadedConfig, configLoadError } = await safeLoadConfig(command, rawOptions);
+
+  if (command === "doctor") {
+    const result = await runProjectDoctor({
+      cwd: process.cwd(),
+      configInfo: loadedConfig,
+      configError: configLoadError
+    });
+    const format = rawOptions.format === "json" ? "json" : "text";
+
+    return {
+      exitCode: result.summary.fail ? 1 : 0,
+      stdout:
+        format === "json"
+          ? serialize(
+              buildCliJsonContract("doctor", result, {
+                status: result.summary.fail ? "error" : "ok",
+                configFound: loadedConfig.found,
+                configPath: loadedConfig.path
+              })
+            )
+          : formatDoctorResultAsText(result)
+    };
+  }
+
   const options = applyConfigDefaults(command, rawOptions, loadedConfig);
   const debugEnabled = options.debug === "true";
   const defaultFormat =
@@ -240,20 +323,6 @@ export async function runCli(argv, dependencies = {}) {
       : "json";
   const format =
     options.format === "json" ? "json" : options.format === "text" ? "text" : defaultFormat;
-
-  if (
-    command !== "select" &&
-    command !== "teach" &&
-    command !== "readme" &&
-    command !== "recall" &&
-    command !== "remember" &&
-    command !== "close"
-  ) {
-    return {
-      exitCode: 1,
-      stderr: `Unknown command '${command}'.\n\n${usageText()}`
-    };
-  }
 
   if (command === "recall") {
     const engram = getEngramClient(options, dependencies);
@@ -360,7 +429,8 @@ export async function runCli(argv, dependencies = {}) {
     };
   }
 
-  const { payload, path } = await loadChunkSource(command, options);
+  const source = await loadChunkSource(command, options);
+  const { payload, path, stats } = source;
   const numeric = readNumericOptions(options);
 
   if (command === "select") {
@@ -372,17 +442,21 @@ export async function runCli(argv, dependencies = {}) {
       sentenceBudget: numeric.sentenceBudget,
       minScore: numeric.minScore
     });
+    const selectionResult = {
+      ...result,
+      ...(stats ? { scanStats: stats } : {})
+    };
 
     return {
       exitCode: 0,
       stdout:
         format === "text"
-          ? formatSelectionAsText(result, { debug: debugEnabled })
+          ? formatSelectionAsText(selectionResult, { debug: debugEnabled })
           : serializeCommandResult(
               "select",
               {
                 input: path,
-                ...result
+                ...selectionResult
               },
               format,
               loadedConfig
@@ -394,8 +468,7 @@ export async function runCli(argv, dependencies = {}) {
     const task = options.task;
     const objective = options.objective;
     const focus =
-      options.focus ??
-      `${task ?? ""} ${objective ?? ""} understand code dependencies concepts`.trim();
+      options.focus ?? `${task ?? ""} ${objective ?? ""} understand code dependencies concepts`.trim();
     const result = await buildLearningReadme({
       title: options.title || "README.LEARN",
       task,
@@ -420,6 +493,7 @@ export async function runCli(argv, dependencies = {}) {
                 {
                   input: path,
                   output: writtenPath,
+                  scanStats: stats ?? null,
                   ...result
                 },
                 format,
@@ -437,6 +511,7 @@ export async function runCli(argv, dependencies = {}) {
               "readme",
               {
                 input: path,
+                scanStats: stats ?? null,
                 ...result
               },
               format,
@@ -485,19 +560,16 @@ export async function runCli(argv, dependencies = {}) {
     .filter((chunk) => chunk.source.startsWith("engram://"))
     .map((chunk) => chunk.id);
   const suppressedMemoryChunkIds = packet.suppressedContext
-    .filter((chunk) =>
-      String(chunk.id).startsWith("engram-memory-")
-    )
+    .filter((chunk) => String(chunk.id).startsWith("engram-memory-"))
     .map((chunk) => chunk.id);
-  const selectedMemoryChunks = selectedMemoryChunkIds.length;
-  const suppressedMemoryChunks = suppressedMemoryChunkIds.length;
   const packetWithMemory = {
     ...packet,
+    ...(stats ? { scanStats: stats } : {}),
     memoryRecall: {
       ...teachChunks.memoryRecall,
       degraded: teachChunks.memoryRecall.degraded === true,
-      selectedChunks: selectedMemoryChunks,
-      suppressedChunks: suppressedMemoryChunks,
+      selectedChunks: selectedMemoryChunkIds.length,
+      suppressedChunks: suppressedMemoryChunkIds.length,
       ...(debugEnabled
         ? {
             selectedChunkIds: selectedMemoryChunkIds,

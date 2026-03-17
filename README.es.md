@@ -150,6 +150,18 @@ Tambien podés usar partes del sistema sin Engram:
 - `readme`
 - `teach --no-recall`
 
+## Inicio rapido
+
+```bash
+npm run doctor
+npm run init:config
+npm test
+npm run typecheck
+npm run benchmark
+npm run benchmark:recall
+npm run benchmark:vertical
+```
+
 ## Demo principal hoy
 
 La demo mas fuerte hoy es el vertical de middleware TypeScript:
@@ -173,6 +185,20 @@ Ese archivo es el lugar oficial para definir:
 - rutas de Engram
 
 Si pasás flags en CLI, esos flags pisan el valor del config.
+
+Para revisar si la instalacion local esta bien:
+
+```bash
+npm run doctor
+```
+
+Para generar el config base:
+
+```bash
+npm run init:config
+```
+
+El `typecheck` actual es incremental a proposito: primero endurece config/bootstrap y el scanner de workspace, en vez de fingir que todo el repo ya esta migrado a TypeScript estricto.
 
 ## Contrato JSON estable
 

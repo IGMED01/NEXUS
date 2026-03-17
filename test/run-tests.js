@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { buildLearningReadme } from "../src/analysis/readme-generator.js";
 import { runCli } from "../src/cli/app.js";
 import { parseChunkFile } from "../src/contracts/context-contracts.js";
 import { loadWorkspaceChunks } from "../src/io/workspace-chunks.js";
 import { buildLearningPacket } from "../src/learning/mentor-loop.js";
+import { initProjectConfig } from "../src/system/project-ops.js";
 import {
   buildCloseSummaryContent,
   createEngramClient,
@@ -548,6 +551,67 @@ run("workspace scanning understands the TypeScript backend vertical", async () =
   assert.ok(result.payload.chunks.some((chunk) => chunk.source === "test/auth/middleware.test.ts"));
   assert.ok(result.payload.chunks.some((chunk) => chunk.source === "logs/server.log"));
   assert.ok(result.payload.chunks.some((chunk) => chunk.source === "chat/history.md"));
+});
+
+run("workspace scanning redacts inline secrets and ignores dot env files", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-redaction-"));
+
+  try {
+    await writeFile(
+      path.join(tempRoot, "app.js"),
+      [
+        'const apiKey = "sk-abcdefghijklmnopqrstuvwxyz123456";',
+        'const bearer = "Bearer abcdefghijklmnopqrstuvwxyz";',
+        'const password = "super-secret";'
+      ].join("\n"),
+      "utf8"
+    );
+    await writeFile(path.join(tempRoot, ".env"), "SECRET=value\n", "utf8");
+
+    const result = await loadWorkspaceChunks(tempRoot);
+    const chunk = result.payload.chunks.find((entry) => entry.source === "app.js");
+
+    assert.ok(chunk);
+    assert.match(chunk.content, /apiKey = "\[REDACTED\]"/);
+    assert.match(chunk.content, /Bearer \[REDACTED\]/);
+    assert.match(chunk.content, /\[REDACTED\]/);
+    assert.equal(result.payload.chunks.some((entry) => entry.source === ".env"), false);
+    assert.equal(result.stats.redactedFiles, 1);
+    assert.equal(result.stats.ignoredFiles >= 1, true);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("cli help documents doctor and init", async () => {
+  const result = await runCli(["help"]);
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /node src\/cli\.js doctor/);
+  assert.match(result.stdout, /node src\/cli\.js init/);
+});
+
+run("init creates config with a stable project id from package name", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-init-"));
+
+  try {
+    await writeFile(
+      path.join(tempRoot, "package.json"),
+      JSON.stringify({ name: "example-learning-repo" }, null, 2),
+      "utf8"
+    );
+
+    const result = await initProjectConfig({ cwd: tempRoot });
+    const raw = await readFile(path.join(tempRoot, "learning-context.config.json"), "utf8");
+    const parsed = JSON.parse(raw);
+
+    assert.equal(result.status, "created");
+    assert.equal(result.project, "example-learning-repo");
+    assert.equal(parsed.project, "example-learning-repo");
+    assert.equal(parsed.workspace, ".");
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });
 
 run("readme generator infers concepts and reading order", async () => {

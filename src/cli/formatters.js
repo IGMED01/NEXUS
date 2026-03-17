@@ -327,9 +327,73 @@ export function formatMemoryWriteAsText(result, heading) {
   return lines.join("\n");
 }
 
+/**
+ * @param {{
+ *   cwd: string,
+ *   summary: { pass: number, warn: number, fail: number },
+ *   checks: Array<{
+ *     id: string,
+ *     label: string,
+ *     status: "pass" | "warn" | "fail",
+ *     detail: string,
+ *     fix?: string
+ *   }>
+ * }} result
+ */
+export function formatDoctorResultAsText(result) {
+  const lines = [
+    "Doctor summary:",
+    `- pass: ${result.summary.pass}`,
+    `- warn: ${result.summary.warn}`,
+    `- fail: ${result.summary.fail}`,
+    `- cwd: ${result.cwd}`,
+    "",
+    "Checks:"
+  ];
+
+  for (const check of result.checks) {
+    lines.push(`- [${check.status}] ${check.label}: ${check.detail}`);
+
+    if (check.fix) {
+      lines.push(`  fix: ${check.fix}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * @param {{
+ *   action: string,
+ *   status: string,
+ *   created: boolean,
+ *   path: string,
+ *   message: string,
+ *   project?: string
+ * }} result
+ */
+export function formatInitResultAsText(result) {
+  const lines = [
+    "Config initialization:",
+    `- action: ${result.action}`,
+    `- status: ${result.status}`,
+    `- created: ${result.created ? "yes" : "no"}`,
+    `- path: ${result.path}`
+  ];
+
+  if (result.project) {
+    lines.push(`- project: ${result.project}`);
+  }
+
+  lines.push(`- message: ${result.message}`);
+  return lines.join("\n");
+}
+
 export function usageText() {
   return [
     "Usage:",
+    "  node src/cli.js doctor [--config <file>] [--format json|text]",
+    "  node src/cli.js init [--config <file>] [--force true|false] [--format json|text]",
     "  node src/cli.js select [--config <file>] (--input <file> | --workspace <dir>) --focus <text> [--token-budget 350] [--max-chunks 6] [--min-score 0.25] [--debug] [--format json|text]",
     "  node src/cli.js teach [--config <file>] (--input <file> | --workspace <dir>) --task <text> --objective <text> [--changed-files a,b] [--project <name>] [--recall-query <text>] [--memory-limit 3] [--memory-type <name>] [--memory-scope <name>] [--no-recall] [--strict-recall true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--token-budget 350] [--max-chunks 6] [--min-score 0.25] [--debug] [--format json|text]",
     "  node src/cli.js readme [--config <file>] [--workspace <dir>] [--input <file>] [--focus <text>] [--task <text>] [--objective <text>] [--title <text>] [--output <file>] [--format json|text]",
@@ -341,6 +405,8 @@ export function usageText() {
     '  { "chunks": [ { "id": "x", "source": "src/file.ts", "kind": "code", "content": "..." } ] }',
     "",
     "Notes:",
+    "  doctor validates Node.js, Git, config, workspace, and Engram availability.",
+    "  init creates learning-context.config.json with stable defaults for this repo.",
     "  --workspace scans the local repository and builds chunks automatically.",
     "  learning-context.config.json is loaded automatically when present.",
     "  readme defaults to --workspace . when no input source is provided.",

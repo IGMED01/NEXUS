@@ -31,22 +31,37 @@ const VALID_KINDS = new Set([
  * @property {Chunk[]} chunks
  */
 
+/**
+ * @param {string} message
+ */
 function fail(message) {
   throw new Error(message);
 }
 
+/**
+ * @param {unknown} value
+ * @param {string} label
+ */
 function assertObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     fail(`${label} must be an object.`);
   }
 }
 
+/**
+ * @param {unknown} value
+ * @param {string} label
+ */
 function assertString(value, label) {
   if (typeof value !== "string" || value.trim() === "") {
     fail(`${label} must be a non-empty string.`);
   }
 }
 
+/**
+ * @param {unknown} value
+ * @param {string} label
+ */
 function assertNumberInRange(value, label) {
   if (value === undefined) {
     return;
@@ -109,7 +124,7 @@ export function validateChunkFile(value) {
   }
 
   return {
-    chunks: payload.chunks.map((chunk, index) => validateChunk(chunk, index))
+    chunks: /** @type {unknown[]} */ (payload.chunks).map((chunk, index) => validateChunk(chunk, index))
   };
 }
 

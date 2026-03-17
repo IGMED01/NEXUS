@@ -7,6 +7,9 @@ import { defaultProjectConfig, parseProjectConfig } from "../contracts/config-co
 
 const DEFAULT_CONFIG_FILE = "learning-context.config.json";
 
+/**
+ * @param {string} filePath
+ */
 async function fileExists(filePath) {
   try {
     await access(filePath);
@@ -16,6 +19,9 @@ async function fileExists(filePath) {
   }
 }
 
+/**
+ * @param {string} startPath
+ */
 function parentDirectories(startPath) {
   const directories = [];
   let current = path.resolve(startPath);

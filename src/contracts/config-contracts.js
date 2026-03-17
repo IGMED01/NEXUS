@@ -1,15 +1,34 @@
 // @ts-check
 
+/**
+ * @typedef {{
+ *   integer?: boolean,
+ *   min?: number,
+ *   max?: number
+ * }} NumberRules
+ */
+
+/**
+ * @param {string} message
+ */
 function fail(message) {
   throw new Error(message);
 }
 
+/**
+ * @param {unknown} value
+ * @param {string} label
+ */
 function assertObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     fail(`${label} must be an object.`);
   }
 }
 
+/**
+ * @param {unknown} value
+ * @param {string} label
+ */
 function optionalString(value, label) {
   if (value === undefined) {
     return undefined;
@@ -22,6 +41,10 @@ function optionalString(value, label) {
   return value;
 }
 
+/**
+ * @param {unknown} value
+ * @param {string} label
+ */
 function optionalBoolean(value, label) {
   if (value === undefined) {
     return undefined;
@@ -34,6 +57,11 @@ function optionalBoolean(value, label) {
   return value;
 }
 
+/**
+ * @param {unknown} value
+ * @param {string} label
+ * @param {NumberRules} [rules]
+ */
 function optionalNumber(value, label, rules = {}) {
   if (value === undefined) {
     return undefined;
@@ -43,19 +71,21 @@ function optionalNumber(value, label, rules = {}) {
     fail(`${label} must be a number.`);
   }
 
-  if (rules.integer && !Number.isInteger(value)) {
+  const numericValue = /** @type {number} */ (value);
+
+  if (rules.integer && !Number.isInteger(numericValue)) {
     fail(`${label} must be an integer.`);
   }
 
-  if (rules.min !== undefined && value < rules.min) {
+  if (rules.min !== undefined && numericValue < rules.min) {
     fail(`${label} must be >= ${rules.min}.`);
   }
 
-  if (rules.max !== undefined && value > rules.max) {
+  if (rules.max !== undefined && numericValue > rules.max) {
     fail(`${label} must be <= ${rules.max}.`);
   }
 
-  return value;
+  return numericValue;
 }
 
 export function defaultProjectConfig() {

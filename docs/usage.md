@@ -89,6 +89,46 @@ Concept:
 
 That is more production-friendly than relying on long repeated command lines.
 
+## Command 0: Check local setup
+
+```bash
+node src/cli.js doctor --format text
+```
+
+What happens internally:
+
+1. the CLI tries to load project config
+2. it verifies Node.js and Git
+3. it checks workspace and Engram paths
+4. it returns pass/warn/fail checks plus fixes
+
+## Command 0b: Create the base config
+
+```bash
+node src/cli.js init --format text
+```
+
+What happens internally:
+
+1. the CLI creates `learning-context.config.json` if missing
+2. it derives a stable project id from `package.json` when available
+3. it writes official defaults for selection and memory
+
+## Incremental typecheck
+
+```bash
+npm run typecheck
+```
+
+Today this validates the hardened bootstrap layer first:
+
+- config contracts
+- config loading
+- workspace scanning and redaction
+- project doctor/init operations
+
+That scope is deliberate. It is a real baseline, not a fake claim that the whole repo is already under strict TypeScript.
+
 ## Command 1: Select useful context in the synthetic playground
 
 ```bash

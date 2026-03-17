@@ -193,7 +193,10 @@ You can still use parts of the system without Engram:
 ## Quick start
 
 ```bash
+npm run doctor
+npm run init:config
 npm test
+npm run typecheck
 npm run benchmark
 npm run benchmark:recall
 npm run benchmark:vertical
@@ -212,6 +215,20 @@ That file is the official place for:
 - Engram binary and data directory paths
 
 CLI flags still win over config values when both are present.
+
+To inspect the local setup:
+
+```bash
+npm run doctor
+```
+
+To generate the base config file:
+
+```bash
+npm run init:config
+```
+
+Current `typecheck` scope is intentionally incremental: it hardens the config/bootstrap and workspace-scan layer first, instead of pretending the whole repo is already fully migrated to strict TypeScript.
 
 ## Best demo right now
 
