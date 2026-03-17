@@ -255,6 +255,30 @@ function testRelationshipScore(source, changedFiles = []) {
   return clamp(best);
 }
 
+function genericTestRunnerPenalty(chunk, changedFiles = []) {
+  if (chunk.kind !== "test" || !changedFiles.length) {
+    return 0;
+  }
+
+  const normalizedSource = normalizeSource(chunk.source);
+  const content = normalizeText(chunk.content);
+  const relatedness = testRelationshipScore(chunk.source, changedFiles);
+  const looksGeneric =
+    normalizedSource.includes("run-tests") ||
+    normalizedSource.includes("test/index") ||
+    normalizedSource.includes("test/setup") ||
+    content.includes("whole repository") ||
+    content.includes("portable checks") ||
+    content.includes("runs portable checks") ||
+    content.includes("across the repository");
+
+  if (!looksGeneric || relatedness >= 0.45) {
+    return 0;
+  }
+
+  return 0.85;
+}
+
 function genericSourcePenalty(source, changedFiles = []) {
   if (!source) {
     return 0;
@@ -269,11 +293,11 @@ function genericSourcePenalty(source, changedFiles = []) {
   const implementationBias = changedFiles.length ? 1 : 0.45;
 
   if (normalized === "readme.md") {
-    return 0.52 * implementationBias;
+    return 0.92 * implementationBias;
   }
 
   if (normalized === "agents.md" || normalized === "agents.md") {
-    return 0.4 * implementationBias;
+    return 0.56 * implementationBias;
   }
 
   if (normalized === "package.json") {
@@ -374,6 +398,7 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
   const changeAnchorWeight =
     chunk.kind === "code" ? 0.16 : chunk.kind === "test" ? 0.09 : 0.12;
   const sourcePenalty = genericSourcePenalty(chunk.source, changedFiles);
+  const genericRunnerPenalty = genericTestRunnerPenalty(chunk, changedFiles);
   const narrativePenalty = narrativeMemoryPenalty(chunk);
   const implementationFit = implementationFitScore(chunk, changedFiles);
 
@@ -398,7 +423,11 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
     changeAnchor * changeAnchorWeight +
     relatedTestBoost * 0.04;
 
-  const penalty = redundancy * 0.22 + sourcePenalty * 0.22 + narrativePenalty * 0.18;
+  const penalty =
+    redundancy * 0.22 +
+    sourcePenalty * 0.22 +
+    narrativePenalty * 0.18 +
+    genericRunnerPenalty * 0.32;
   const total = clamp(positiveScore - penalty);
 
   return {
@@ -416,6 +445,7 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
       changeAnchorWeight,
       relatedTestBoost,
       sourcePenalty,
+      genericRunnerPenalty,
       implementationFit,
       narrativePenalty,
       redundancy,
@@ -461,11 +491,45 @@ export function selectContextWindow(chunks, options = {}) {
       score: rescored.total,
       diagnostics: rescored.detail
     };
+    const hasImplementationAnchor = selected.some(
+      (selectedChunk) => selectedChunk.kind === "code" || selectedChunk.kind === "test"
+    );
 
     if (chunk.score < minScore) {
       suppressed.push({
         id: chunk.id,
         reason: "score-below-threshold",
+        score: chunk.score
+      });
+      continue;
+    }
+
+    if (
+      changedFiles.length &&
+      hasImplementationAnchor &&
+      (chunk.kind === "spec" || chunk.kind === "doc") &&
+      chunk.diagnostics.sourcePenalty >= 0.8 &&
+      chunk.diagnostics.sourceAffinity <= 0.2
+    ) {
+      suppressed.push({
+        id: chunk.id,
+        reason: "generic-doc-noise",
+        score: chunk.score
+      });
+      continue;
+    }
+
+    if (
+      changedFiles.length &&
+      hasImplementationAnchor &&
+      chunk.kind === "test" &&
+      chunk.diagnostics.genericRunnerPenalty >= 0.8 &&
+      chunk.diagnostics.relatedTestBoost < 0.45 &&
+      chunk.diagnostics.sourceAffinity < 0.3
+    ) {
+      suppressed.push({
+        id: chunk.id,
+        reason: "generic-test-noise",
         score: chunk.score
       });
       continue;

@@ -126,10 +126,10 @@
       },
       "expectations": {
         "mustSelect": ["cli-app", "cli-test"],
-        "mustExclude": ["readme"],
+        "mustExclude": ["readme", "runner"],
         "relevant": ["cli-app", "cli-test"],
         "topPrefix": ["cli-app", "cli-test"],
-        "minRelevantRatio": 0.66
+        "minRelevantRatio": 1
       }
     },
     {
