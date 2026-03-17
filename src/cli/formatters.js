@@ -2,19 +2,55 @@
 
 /** @typedef {import("../types/core-contracts.d.ts").ScanStats} ScanStats */
 /** @typedef {import("../types/core-contracts.d.ts").DoctorResult} DoctorResult */
+/** @typedef {import("../types/core-contracts.d.ts").PacketChunk} PacketChunk */
+/** @typedef {import("../types/core-contracts.d.ts").PacketSuppressedChunk} PacketSuppressedChunk */
+/** @typedef {import("../types/core-contracts.d.ts").ContextSelectionResult} ContextSelectionResult */
+/** @typedef {import("../types/core-contracts.d.ts").LearningPacket} LearningPacket */
+/** @typedef {import("../types/core-contracts.d.ts").MemoryRecallState} MemoryRecallState */
+
+/**
+ * @typedef {ContextSelectionResult & {
+ *   scanStats?: ScanStats | null
+ * }} SelectionRenderResult
+ */
+
+/**
+ * @typedef {MemoryRecallState & {
+ *   selectedChunkIds?: string[],
+ *   suppressedChunkIds?: string[]
+ * }} RenderMemoryRecallState
+ */
+
+/**
+ * @typedef {LearningPacket & {
+ *   scanStats?: ScanStats | null,
+ *   memoryRecall?: RenderMemoryRecallState
+ * }} LearningPacketRenderResult
+ */
+
 function originFromSource(source = "") {
   return String(source).startsWith("engram://") ? "engram" : "workspace";
 }
 
+/**
+ * @param {Record<string, number>} [counts]
+ */
 function formatCountMap(counts = {}) {
   const entries = Object.entries(counts).sort((left, right) => left[0].localeCompare(right[0]));
   return entries.length ? entries.map(([key, value]) => `${key}=${value}`).join(", ") : "none";
 }
 
+/**
+ * @param {unknown} value
+ */
 function metric(value) {
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(3) : "n/a";
 }
 
+/**
+ * @param {PacketChunk | PacketSuppressedChunk} chunk
+ * @param {string} [indent]
+ */
 function chunkDebugLines(chunk, indent = "  ") {
   const diagnostics = chunk.diagnostics;
 
@@ -48,6 +84,9 @@ function formatScanStats(scanStats) {
   ];
 }
 
+/**
+ * @param {PacketChunk | null | undefined} chunk
+ */
 function formatSectionChunk(chunk) {
   if (!chunk) {
     return "- none";
@@ -57,7 +96,7 @@ function formatSectionChunk(chunk) {
 }
 
 /**
- * @param {ReturnType<import("../context/noise-canceler.js").selectContextWindow>} result
+ * @param {SelectionRenderResult} result
  * @param {{ debug?: boolean }} [options]
  */
 export function formatSelectionAsText(result, options = {}) {
@@ -120,7 +159,7 @@ export function formatSelectionAsText(result, options = {}) {
 }
 
 /**
- * @param {ReturnType<import("../learning/mentor-loop.js").buildLearningPacket> & { scanStats?: ScanStats | null, memoryRecall?: Record<string, unknown> }} packet
+ * @param {LearningPacketRenderResult} packet
  * @param {{ debug?: boolean }} [options]
  */
 export function formatLearningPacketAsText(packet, options = {}) {

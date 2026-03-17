@@ -14,6 +14,8 @@
     "types": ["node"]
   },
   "include": [
+    "src/cli/formatters.js",
+    "src/contracts/cli-contracts.js",
     "src/contracts/config-contracts.js",
     "src/context/noise-canceler.js",
     "src/io/config-file.js",
