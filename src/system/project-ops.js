@@ -10,8 +10,8 @@ import { writeTextFile } from "../io/text-file.js";
 
 const execFile = promisify(execFileCallback);
 
-/** @typedef {import("../types/core-contracts.js").DoctorCheck} DoctorCheck */
-/** @typedef {import("../types/core-contracts.js").DoctorResult} DoctorResult */
+/** @typedef {import("../types/core-contracts.d.ts").DoctorCheck} DoctorCheck */
+/** @typedef {import("../types/core-contracts.d.ts").DoctorResult} DoctorResult */
 
 /**
  * @param {string} targetPath

@@ -1,7 +1,7 @@
 // @ts-check
 
-/** @typedef {import("../types/core-contracts.js").ScanStats} ScanStats */
-/** @typedef {import("../types/core-contracts.js").DoctorResult} DoctorResult */
+/** @typedef {import("../types/core-contracts.d.ts").ScanStats} ScanStats */
+/** @typedef {import("../types/core-contracts.d.ts").DoctorResult} DoctorResult */
 function originFromSource(source = "") {
   return String(source).startsWith("engram://") ? "engram" : "workspace";
 }

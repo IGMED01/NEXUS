@@ -1,5 +1,7 @@
 // @ts-check
 
+/** @typedef {import("../types/core-contracts.d.ts").TeachRecallQueryInput} TeachRecallQueryInput */
+
 const RECALL_STOPWORDS = new Set([
   "a",
   "an",
@@ -82,6 +84,10 @@ function normalizeText(text = "") {
     .trim();
 }
 
+/**
+ * @param {string} [text]
+ * @returns {string[]}
+ */
 function splitTerms(text = "") {
   return normalizeText(text)
     .split(/[\s/._-]+/)
@@ -89,6 +95,9 @@ function splitTerms(text = "") {
     .filter(Boolean);
 }
 
+/**
+ * @param {string} term
+ */
 function isUsefulTerm(term) {
   return (
     term.length >= 3 &&
@@ -98,10 +107,18 @@ function isUsefulTerm(term) {
   );
 }
 
+/**
+ * @param {string[]} values
+ * @returns {string[]}
+ */
 function uniqueStrings(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
+/**
+ * @param {string} term
+ * @returns {string[]}
+ */
 function expandTerm(term) {
   const variants = [term];
 
@@ -120,6 +137,11 @@ function expandTerm(term) {
   return uniqueStrings(variants).filter(isUsefulTerm);
 }
 
+/**
+ * @param {Map<string, number>} scoreMap
+ * @param {string[]} terms
+ * @param {number} weight
+ */
 function addWeightedTerms(scoreMap, terms, weight) {
   for (const term of terms) {
     if (!isUsefulTerm(term)) {
@@ -138,6 +160,10 @@ function addWeightedTerms(scoreMap, terms, weight) {
   }
 }
 
+/**
+ * @param {TeachRecallQueryInput} input
+ * @returns {Map<string, number>}
+ */
 function scoreTerms(input) {
   const scoreMap = new Map();
 
@@ -156,12 +182,20 @@ function scoreTerms(input) {
   return scoreMap;
 }
 
+/**
+ * @param {TeachRecallQueryInput} input
+ * @returns {string[]}
+ */
 function rankedTerms(input) {
   return [...scoreTerms(input).entries()]
     .sort((left, right) => right[1] - left[1] || right[0].length - left[0].length)
     .map(([term]) => term);
 }
 
+/**
+ * @param {string[]} [changedFiles]
+ * @returns {string[]}
+ */
 function rankedFileTerms(changedFiles = []) {
   const scoreMap = new Map();
 
@@ -177,6 +211,10 @@ function rankedFileTerms(changedFiles = []) {
     .map(([term]) => term);
 }
 
+/**
+ * @param {string[]} terms
+ * @param {number} limit
+ */
 function buildQueryFromTerms(terms, limit) {
   return uniqueStrings(terms)
     .filter(isUsefulTerm)
@@ -186,14 +224,8 @@ function buildQueryFromTerms(terms, limit) {
 }
 
 /**
- * @param {{
- *   task?: string,
- *   objective?: string,
- *   focus?: string,
- *   changedFiles?: string[],
- *   explicitQuery?: string,
- *   maxQueries?: number
- * }} input
+ * @param {TeachRecallQueryInput} input
+ * @returns {string[]}
  */
 export function buildTeachRecallQueries(input) {
   const explicitQuery = input.explicitQuery?.trim();

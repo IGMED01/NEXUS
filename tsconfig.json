@@ -15,8 +15,13 @@
   },
   "include": [
     "src/contracts/config-contracts.js",
+    "src/context/noise-canceler.js",
     "src/io/config-file.js",
     "src/io/workspace-chunks.js",
+    "src/learning/mentor-loop.js",
+    "src/memory/engram-client.js",
+    "src/memory/recall-queries.js",
+    "src/memory/teach-recall.js",
     "src/system/project-ops.js",
     "src/types/**/*.d.ts"
   ]

@@ -4,6 +4,11 @@ import { execFile as execFileCallback } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
 
+/** @typedef {import("../types/core-contracts.d.ts").Chunk} Chunk */
+/** @typedef {import("../types/core-contracts.d.ts").EngramResolvedConfig} EngramResolvedConfig */
+/** @typedef {import("../types/core-contracts.d.ts").EngramCommandResult} EngramCommandResult */
+/** @typedef {import("../types/core-contracts.d.ts").EngramSearchOptions} EngramSearchOptions */
+
 const execFile = promisify(execFileCallback);
 
 /**
@@ -19,6 +24,7 @@ const execFile = promisify(execFileCallback);
 
 /**
  * @param {{ cwd?: string, binaryPath?: string, dataDir?: string }} [options]
+ * @returns {EngramResolvedConfig}
  */
 export function resolveEngramConfig(options = {}) {
   const cwd = path.resolve(options.cwd ?? process.cwd());
@@ -108,12 +114,18 @@ export function buildCloseSummaryContent(input) {
   return lines.join("\n");
 }
 
+/**
+ * @param {number} value
+ * @param {number} [min]
+ * @param {number} [max]
+ */
 function clamp(value, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
 }
 
 /**
  * @param {string} type
+ * @returns {{ certainty: number, teachingValue: number, priority: number }}
  */
 function memoryTypeProfile(type) {
   const normalized = type.trim().toLowerCase();
@@ -157,6 +169,7 @@ function recencyFromMetadata(metadataLine) {
 /**
  * @param {string} raw
  * @param {{ query?: string, project?: string }} [options]
+ * @returns {Chunk[]}
  */
 export function searchOutputToChunks(raw, options = {}) {
   const text = raw.trim();
@@ -168,6 +181,7 @@ export function searchOutputToChunks(raw, options = {}) {
   const lines = text.split(/\r?\n/);
   /** @type {Array<{ header: string, detailLines: string[] }>} */
   const blocks = [];
+  /** @type {{ header: string, detailLines: string[] } | null} */
   let currentBlock = null;
 
   for (const line of lines) {
@@ -240,6 +254,7 @@ export function createEngramClient(options = {}) {
 
   /**
    * @param {string[]} args
+   * @returns {Promise<EngramCommandResult>}
    */
   async function execute(args) {
     try {
@@ -322,7 +337,7 @@ export function createEngramClient(options = {}) {
 
   /**
    * @param {string} query
-   * @param {{ project?: string, scope?: string, type?: string, limit?: number }} [options]
+   * @param {EngramSearchOptions} [options]
    */
   async function searchMemories(query, options = {}) {
     const args = ["search", query];

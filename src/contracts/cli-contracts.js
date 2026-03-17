@@ -1,6 +1,6 @@
 // @ts-check
 
-/** @typedef {import("../types/core-contracts.js").CliContractMeta} CliContractMeta */
+/** @typedef {import("../types/core-contracts.d.ts").CliContractMeta} CliContractMeta */
 
 export const CLI_SCHEMA_VERSION = "1.0.0";
 

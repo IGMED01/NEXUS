@@ -1,3 +1,27 @@
+// @ts-check
+
+/** @typedef {import("../types/core-contracts.d.ts").Chunk} Chunk */
+/** @typedef {import("../types/core-contracts.d.ts").ChunkKind} ChunkKind */
+/** @typedef {import("../types/core-contracts.d.ts").ChunkDiagnostics} ChunkDiagnostics */
+/** @typedef {import("../types/core-contracts.d.ts").SelectedChunk} SelectedChunk */
+/** @typedef {import("../types/core-contracts.d.ts").SuppressedChunk} SuppressedChunk */
+/** @typedef {import("../types/core-contracts.d.ts").SelectionOptions} SelectionOptions */
+/** @typedef {import("../types/core-contracts.d.ts").ContextSelectionResult} ContextSelectionResult */
+
+/**
+ * @typedef {Chunk & {
+ *   origin: "engram" | "workspace",
+ *   tokenCount: number
+ * }} PreparedChunk
+ */
+
+/**
+ * @typedef {{
+ *   total: number,
+ *   detail: ChunkDiagnostics
+ * }} ScoreChunkResult
+ */
+
 const DEFAULT_STOPWORDS = new Set([
   "a",
   "al",
@@ -34,7 +58,7 @@ const DEFAULT_STOPWORDS = new Set([
   "y"
 ]);
 
-const KIND_PRIOR = {
+const KIND_PRIOR = /** @type {Record<ChunkKind, number>} */ ({
   code: 1,
   test: 0.95,
   spec: 0.9,
@@ -42,12 +66,20 @@ const KIND_PRIOR = {
   doc: 0.78,
   chat: 0.42,
   log: 0.2
-};
+});
 
+/**
+ * @param {number} value
+ * @param {number} [min]
+ * @param {number} [max]
+ */
 function clamp(value, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
 }
 
+/**
+ * @param {string} [text]
+ */
 function normalizeText(text = "") {
   return text
     .normalize("NFKD")
@@ -57,6 +89,11 @@ function normalizeText(text = "") {
     .trim();
 }
 
+/**
+ * @param {string} [text]
+ * @param {Set<string>} [stopwords]
+ * @returns {string[]}
+ */
 export function tokenize(text = "", stopwords = DEFAULT_STOPWORDS) {
   return normalizeText(text)
     .split(/\s+/)
@@ -64,10 +101,17 @@ export function tokenize(text = "", stopwords = DEFAULT_STOPWORDS) {
     .filter((token) => !stopwords.has(token));
 }
 
+/**
+ * @param {string[]} tokens
+ */
 function toSet(tokens) {
   return new Set(tokens);
 }
 
+/**
+ * @param {string[]} aTokens
+ * @param {string[]} bTokens
+ */
 function jaccardSimilarity(aTokens, bTokens) {
   const a = toSet(aTokens);
   const b = toSet(bTokens);
@@ -87,6 +131,10 @@ function jaccardSimilarity(aTokens, bTokens) {
   return intersection / (a.size + b.size - intersection);
 }
 
+/**
+ * @param {string[]} chunkTokens
+ * @param {string[]} focusTokens
+ */
 function overlapScore(chunkTokens, focusTokens) {
   if (!chunkTokens.length || !focusTokens.length) {
     return 0;
@@ -105,6 +153,9 @@ function overlapScore(chunkTokens, focusTokens) {
   return overlap / focusSet.size;
 }
 
+/**
+ * @param {string[]} tokens
+ */
 function densityScore(tokens) {
   if (!tokens.length) {
     return 0;
@@ -114,18 +165,32 @@ function densityScore(tokens) {
   return clamp(uniqueRatio);
 }
 
+/**
+ * @param {string} [text]
+ */
 function approximateTokenCount(text = "") {
   return tokenize(text).length;
 }
 
+/**
+ * @param {string} [source]
+ */
 function normalizeSource(source = "") {
   return String(source).replace(/\\/g, "/").toLowerCase();
 }
 
+/**
+ * @param {string} [source]
+ * @returns {"engram" | "workspace"}
+ */
 function chunkOrigin(source = "") {
   return normalizeSource(source).startsWith("engram://") ? "engram" : "workspace";
 }
 
+/**
+ * @param {string} [source]
+ * @returns {string[]}
+ */
 function sourceTerms(source = "") {
   return normalizeSource(source)
     .split(/[/. _-]+/)
@@ -133,6 +198,9 @@ function sourceTerms(source = "") {
     .filter((term) => !DEFAULT_STOPWORDS.has(term));
 }
 
+/**
+ * @param {string} [source]
+ */
 function stemSource(source = "") {
   return normalizeSource(source)
     .replace(/\.[a-z0-9]+$/u, "")
@@ -140,6 +208,10 @@ function stemSource(source = "") {
     .replace(/\/index$/u, "");
 }
 
+/**
+ * @param {string[]} aTerms
+ * @param {string[]} bTerms
+ */
 function tokenOverlap(aTerms, bTerms) {
   const a = new Set(aTerms);
   const b = new Set(bTerms);
@@ -159,6 +231,10 @@ function tokenOverlap(aTerms, bTerms) {
   return hits / Math.max(a.size, b.size);
 }
 
+/**
+ * @param {string} source
+ * @param {string[]} [changedFiles]
+ */
 function sourceAffinityScore(source, changedFiles = []) {
   if (!changedFiles.length) {
     return 0;
@@ -199,6 +275,10 @@ function sourceAffinityScore(source, changedFiles = []) {
   return clamp(best);
 }
 
+/**
+ * @param {string} source
+ * @param {string[]} [changedFiles]
+ */
 function changeAnchorScore(source, changedFiles = []) {
   if (!changedFiles.length) {
     return 0;
@@ -224,6 +304,10 @@ function changeAnchorScore(source, changedFiles = []) {
   return best;
 }
 
+/**
+ * @param {string} source
+ * @param {string[]} [changedFiles]
+ */
 function testRelationshipScore(source, changedFiles = []) {
   const normalizedSource = normalizeSource(source);
 
@@ -259,6 +343,10 @@ function testRelationshipScore(source, changedFiles = []) {
   return clamp(best);
 }
 
+/**
+ * @param {Chunk} chunk
+ * @param {string[]} [changedFiles]
+ */
 function genericTestRunnerPenalty(chunk, changedFiles = []) {
   if (chunk.kind !== "test" || !changedFiles.length) {
     return 0;
@@ -283,6 +371,10 @@ function genericTestRunnerPenalty(chunk, changedFiles = []) {
   return 0.85;
 }
 
+/**
+ * @param {string} source
+ * @param {string[]} [changedFiles]
+ */
 function genericSourcePenalty(source, changedFiles = []) {
   if (!source) {
     return 0;
@@ -315,6 +407,9 @@ function genericSourcePenalty(source, changedFiles = []) {
   return 0;
 }
 
+/**
+ * @param {Chunk} chunk
+ */
 function narrativeMemoryPenalty(chunk) {
   if (chunk.kind !== "memory") {
     return 0;
@@ -334,6 +429,10 @@ function narrativeMemoryPenalty(chunk) {
   return 0;
 }
 
+/**
+ * @param {Chunk} chunk
+ * @param {string[]} [changedFiles]
+ */
 function implementationFitScore(chunk, changedFiles = []) {
   if (!changedFiles.length) {
     return 0;
@@ -358,6 +457,11 @@ function implementationFitScore(chunk, changedFiles = []) {
   }
 }
 
+/**
+ * @param {string} content
+ * @param {string} [focus]
+ * @param {number} [sentenceBudget]
+ */
 export function compressContent(content, focus = "", sentenceBudget = 3) {
   const focusTokens = tokenize(focus);
   const sentences = content
@@ -385,6 +489,13 @@ export function compressContent(content, focus = "", sentenceBudget = 3) {
   return ranked.map((item) => item.sentence).join(" ").trim();
 }
 
+/**
+ * @param {Chunk} chunk
+ * @param {string} focus
+ * @param {Array<Chunk | SelectedChunk>} [selectedChunks]
+ * @param {SelectionOptions} [options]
+ * @returns {ScoreChunkResult}
+ */
 export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
   const focusTokens = tokenize(focus);
   const chunkTokens = tokenize(chunk.content);
@@ -458,6 +569,11 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
   };
 }
 
+/**
+ * @param {Chunk[]} chunks
+ * @param {SelectionOptions} [options]
+ * @returns {ContextSelectionResult}
+ */
 export function selectContextWindow(chunks, options = {}) {
   const {
     focus = "",
@@ -468,6 +584,7 @@ export function selectContextWindow(chunks, options = {}) {
     changedFiles = []
   } = options;
 
+  /** @type {PreparedChunk[]} */
   const prepared = chunks.map((chunk) => {
     const compressedContent = compressContent(chunk.content, focus, sentenceBudget);
     return {
@@ -478,7 +595,9 @@ export function selectContextWindow(chunks, options = {}) {
     };
   });
 
+  /** @type {SelectedChunk[]} */
   const selected = [];
+  /** @type {SuppressedChunk[]} */
   const suppressed = [];
   let usedTokens = 0;
 
@@ -617,7 +736,14 @@ export function selectContextWindow(chunks, options = {}) {
   };
 }
 
+/**
+ * @template T
+ * @param {T[]} items
+ * @param {(item: T) => string | undefined} keySelector
+ * @returns {Record<string, number>}
+ */
 function summarizeBy(items, keySelector) {
+  /** @type {Record<string, number>} */
   const counts = {};
 
   for (const item of items) {

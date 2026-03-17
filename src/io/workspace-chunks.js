@@ -3,9 +3,9 @@
 import { readFile, readdir } from "node:fs/promises";
 import { extname, relative, resolve } from "node:path";
 
-/** @typedef {import("../types/core-contracts.js").ChunkKind} ChunkKind */
-/** @typedef {import("../types/core-contracts.js").Chunk} Chunk */
-/** @typedef {import("../types/core-contracts.js").ScanStats} ScanStats */
+/** @typedef {import("../types/core-contracts.d.ts").ChunkKind} ChunkKind */
+/** @typedef {import("../types/core-contracts.d.ts").Chunk} Chunk */
+/** @typedef {import("../types/core-contracts.d.ts").ScanStats} ScanStats */
 /**
  * @typedef {{
  *   absolutePath: string,

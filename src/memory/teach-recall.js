@@ -3,6 +3,14 @@
 import { buildTeachRecallQueries } from "./recall-queries.js";
 import { searchOutputToChunks } from "./engram-client.js";
 
+/** @typedef {import("../types/core-contracts.d.ts").MemoryRecallState} MemoryRecallState */
+/** @typedef {import("../types/core-contracts.d.ts").TeachRecallResolution} TeachRecallResolution */
+/** @typedef {import("../types/core-contracts.d.ts").Chunk} Chunk */
+
+/**
+ * @param {string} [project]
+ * @returns {MemoryRecallState}
+ */
 function disabledRecall(project = "") {
   return {
     enabled: false,
@@ -22,6 +30,10 @@ function disabledRecall(project = "") {
   };
 }
 
+/**
+ * @param {string} [project]
+ * @returns {MemoryRecallState}
+ */
 function skippedRecall(project = "") {
   return {
     enabled: false,
@@ -53,9 +65,10 @@ function skippedRecall(project = "") {
  *   scope?: string,
  *   type?: string,
  *   strictRecall?: boolean,
- *   baseChunks?: import("../contracts/context-contracts.js").Chunk[],
+ *   baseChunks?: Chunk[],
  *   searchMemories: (query: string, options?: { project?: string, scope?: string, type?: string, limit?: number }) => Promise<{ stdout: string }>
  * }} input
+ * @returns {Promise<TeachRecallResolution>}
  */
 export async function resolveTeachRecall(input) {
   const changedFiles = input.changedFiles ?? [];
@@ -84,7 +97,7 @@ export async function resolveTeachRecall(input) {
   }
 
   try {
-    /** @type {Map<string, import("../contracts/context-contracts.js").Chunk>} */
+    /** @type {Map<string, Chunk>} */
     const uniqueChunks = new Map();
     const queriesTried = [];
     const matchedQueries = [];

@@ -16,26 +16,36 @@ Move the core from "disciplined JavaScript" to "strictly typed and safer to refa
 
 - incremental `typecheck` exists
 - config/bootstrap/scanner already pass strict checking
+- shared core contracts already exist in `src/types/core-contracts.d.ts`
+- selector, mentor loop, and memory recall now share typed shapes instead of ad-hoc inline objects
+- enforced `typecheck` already covers:
+  - `src/context/noise-canceler.js`
+  - `src/learning/mentor-loop.js`
+  - `src/memory/recall-queries.js`
+  - `src/memory/engram-client.js`
+  - `src/memory/teach-recall.js`
 - core runtime still lives mostly in `.js`
 
 ## Milestones
 
-### Milestone 1 — Shared contracts
+### Milestone 1 - Shared contracts
 
-- define shared core types for chunks, packets, memory recall, doctor checks, and CLI metadata
-- replace repeated ad-hoc JSDoc object shapes
-- keep runtime behavior unchanged
+- [x] define shared core types for chunks, packets, memory recall, doctor checks, and CLI metadata
+- [x] replace repeated ad-hoc JSDoc object shapes
+- [x] keep runtime behavior unchanged
 
-### Milestone 2 — Core modules under strict typing
+### Milestone 2 - Core modules under strict typing
 
-- harden:
+- [x] harden:
   - `src/context/noise-canceler.js`
   - `src/learning/mentor-loop.js`
   - `src/memory/teach-recall.js`
   - `src/memory/engram-client.js`
-- eliminate the most fragile implicit `any` paths
+  - `src/memory/recall-queries.js`
+- [x] eliminate the most fragile implicit `any` paths
+- [ ] widen strict typing to CLI orchestration and formatter edges
 
-### Milestone 3 — Real `.ts` migration
+### Milestone 3 - Real `.ts` migration
 
 - move selected core files to `.ts`
 - add build output strategy for publishable CLI use
