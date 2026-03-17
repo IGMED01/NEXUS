@@ -146,6 +146,16 @@ The TypeScript backend vertical under `examples/typescript-backend/` uses:
 - **Git** for version control
 - **Engram** for durable memory only
 
+## Acknowledgements
+
+This repository was built as an original implementation, but it openly credits external references that shaped specific parts of the architecture.
+
+- **[Engram](https://github.com/Gentleman-Programming/engram)** from Gentleman-Programming: reference and local runtime only for durable memory persistence and recall
+- **[gentleman-architecture-agents](https://github.com/Gentleman-Programming/gentleman-architecture-agents)**: reference for agent contracts, scope discipline, and `AGENTS.md` structure
+- **[Gentle-Learning](https://github.com/Gentleman-Programming/Gentle-Learning)**: reference for the teaching-oriented framing and learning flow
+
+These projects are credited as architectural inspiration. They are not listed as direct contributors to this repository unless they contribute commits here.
+
 ## Project layout
 
 - `AGENTS.md`: operating contract for future agents

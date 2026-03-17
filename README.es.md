@@ -98,6 +98,16 @@ El vertical `examples/typescript-backend/` usa:
 - **Git** para control de versiones
 - **Engram** solo para memoria durable
 
+## Creditos y referencias
+
+Este repositorio fue implementado como trabajo original, pero deja explicitas las referencias externas que inspiraron partes concretas de la arquitectura.
+
+- **[Engram](https://github.com/Gentleman-Programming/engram)** de Gentleman-Programming: referencia y runtime local solo para persistencia y recall de memoria durable
+- **[gentleman-architecture-agents](https://github.com/Gentleman-Programming/gentleman-architecture-agents)**: referencia para contratos de agentes, disciplina de alcance y estructura de `AGENTS.md`
+- **[Gentle-Learning](https://github.com/Gentleman-Programming/Gentle-Learning)**: referencia para el enfoque pedagogico y el flujo de aprendizaje
+
+Estos proyectos aparecen como creditos e inspiracion arquitectonica. No deben figurar como contributors de este repo salvo que hagan commits aqui.
+
 ## Que no es este proyecto
 
 No es todavia:
