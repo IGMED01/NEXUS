@@ -133,6 +133,7 @@ Si es hoy:
 - `docs/security-model.md`: modelo de seguridad, redaccion y limites del escaneo
 - `docs/skills-governance.md`: politica para aprobar o bloquear skills con niveles de riesgo y rollback
 - `docs/ops-runbook.md`: checklist operativo para validacion, modo degradado y releases
+- `docs/status-actual.md`: estado operativo actual y hitos cerrados
 - `docs/usage.md`: como usar la CLI
 - `learning-context.config.json`: defaults versionados del proyecto
 - `VERSIONING.md`: politica para alinear version de paquete, tags y releases

@@ -168,6 +168,7 @@ These projects are credited as architectural inspiration. They are not listed as
 - `docs/security-model.md`: scan safety model, secret redaction policy, and limits
 - `docs/skills-governance.md`: policy to approve/block skills with risk tiers and rollback rules
 - `docs/ops-runbook.md`: operational checklist for validation, degraded mode, and release hygiene
+- `docs/status-actual.md`: current operational status and closed milestones
 - `docs/typescript-backend-vertical.md`: end-to-end TypeScript backend demo flow
 - `docs/usage.md`: CLI usage and input contract
 - `examples/typescript-backend/`: realistic TypeScript middleware workspace
