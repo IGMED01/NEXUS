@@ -156,6 +156,11 @@ Current migrated `.ts` leaf modules:
 - `src/security/secret-redaction.ts`
 - `src/io/text-file.ts`
 
+Compatibility detail:
+
+- `src/` keeps JS-compatible runtime modules for Node 20/22 execution
+- `dist/` is produced from the migration track and validated in CI
+
 ## Privacy and redaction
 
 The workspace scanner now applies a simple safety policy before chunks are built:

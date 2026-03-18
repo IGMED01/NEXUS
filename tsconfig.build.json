@@ -13,5 +13,9 @@
     "src/**/*.js",
     "src/**/*.ts",
     "src/types/**/*.d.ts"
+  ],
+  "exclude": [
+    "src/io/text-file.js",
+    "src/security/secret-redaction.js"
   ]
 }

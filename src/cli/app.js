@@ -5,7 +5,7 @@ import { defaultProjectConfig } from "../contracts/config-contracts.js";
 import { selectContextWindow } from "../context/noise-canceler.js";
 import { loadProjectConfig } from "../io/config-file.js";
 import { loadChunkFile } from "../io/json-file.js";
-import { writeTextFile } from "../io/text-file.ts";
+import { writeTextFile } from "../io/text-file.js";
 import { loadWorkspaceChunks } from "../io/workspace-chunks.js";
 import { buildLearningPacket } from "../learning/mentor-loop.js";
 import { createEngramClient } from "../memory/engram-client.js";

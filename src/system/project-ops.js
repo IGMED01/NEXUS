@@ -6,7 +6,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 
 import { defaultProjectConfig } from "../contracts/config-contracts.js";
-import { writeTextFile } from "../io/text-file.ts";
+import { writeTextFile } from "../io/text-file.js";
 
 const execFile = promisify(execFileCallback);
 

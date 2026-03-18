@@ -279,6 +279,11 @@ Current real `.ts` migrations in `src/`:
 - `src/security/secret-redaction.ts`
 - `src/io/text-file.ts`
 
+Compatibility note:
+
+- Node 20/22 local runtime still uses `.js` entry modules in `src/`
+- `dist/` build emits from the `.ts` migration track for packaging and CI smoke validation
+
 ## Privacy and scan policy
 
 The workspace scanner is not a blind dump.

@@ -249,6 +249,11 @@ Migraciones reales actuales a `.ts` dentro de `src/`:
 - `src/security/secret-redaction.ts`
 - `src/io/text-file.ts`
 
+Nota de compatibilidad:
+
+- en runtime local Node 20/22 se mantienen entradas `.js` en `src/`
+- el build `dist/` se emite desde la pista migrada `.ts` para packaging y validacion en CI
+
 ## Privacidad y politica de escaneo
 
 El scanner del workspace no hace un volcado ciego.

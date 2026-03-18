@@ -23,7 +23,7 @@ import { compressContent, selectContextWindow } from "../src/context/noise-cance
 import {
   redactSensitiveContent,
   shouldIgnoreSensitiveFile
-} from "../src/security/secret-redaction.ts";
+} from "../src/security/secret-redaction.js";
 
 const tests = [];
 const execFile = promisify(execFileCallback);
