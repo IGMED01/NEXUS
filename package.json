@@ -44,7 +44,7 @@
     "prepublishOnly": "npm run build && npm run build:smoke"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
+    "@types/node": "^25.5.0",
     "typescript": "^5.9.3"
   }
 }
