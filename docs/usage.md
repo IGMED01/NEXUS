@@ -149,6 +149,8 @@ That is the honest migration strategy:
 2. keep building the full runtime to `dist/`
 3. move modules to `.ts` gradually instead of pretending the whole repo is already migrated
 
+Package distribution now points to `dist/cli.js` as executable surface, while local development can still use `src/cli.js`.
+
 ## Privacy and redaction
 
 The workspace scanner now applies a simple safety policy before chunks are built:

@@ -1,0 +1,54 @@
+name: Bug report
+description: Reporta un error reproducible en la CLI, benchmarks o integración con memoria.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Resumen
+      description: ¿Qué está mal y qué esperabas que ocurriera?
+      placeholder: Describe el fallo en una o dos frases.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Pasos para reproducir
+      description: Incluye comandos exactos.
+      placeholder: |
+        1. npm run doctor
+        2. node src/cli.js teach ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Salida / error relevante
+      description: Pega salida corta. No incluyas secretos.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Commit o release
+      placeholder: e.g. 1cea56f o v0.1.0-experimental
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Entorno
+      placeholder: |
+        OS:
+        Node:
+        npm:
+        Engram:
+    validations:
+      required: true

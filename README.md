@@ -264,6 +264,16 @@ Conceptually:
 
 The local developer entrypoint stays `src/cli.js` for now. The `dist/` build is the bridge toward a later full `.ts` migration, not a fake claim that migration is already done.
 
+### What "real migration" means here
+
+In this repo, migration is considered real only when all three happen:
+
+1. module source moves to `.ts`
+2. runtime behavior is validated through `dist/`
+3. package distribution uses `dist` as the executable surface
+
+The project now enforces step (2) and step (3) through CI build + smoke and `bin` pointing to `dist/cli.js`.
+
 ## Privacy and scan policy
 
 The workspace scanner is not a blind dump.
@@ -294,6 +304,17 @@ Security overrides are deliberately explicit:
 - use `extraSensitivePathFragments` when a repo has custom sensitive areas that should never enter context
 
 Security model details live in [docs/security-model.md](docs/security-model.md).
+
+## Open-source collaboration surfaces
+
+To make the repository usable by others, GitHub surfaces are now explicitly wired:
+
+- Issue templates:
+  - bug report
+  - feature request
+  - usage question
+- Pull request template with mandatory validation checklist
+- Security policy in [`SECURITY.md`](SECURITY.md)
 
 ## Best demo right now
 

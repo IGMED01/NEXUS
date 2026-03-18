@@ -1,0 +1,43 @@
+name: Feature request
+description: Propón una mejora para selección de contexto, enseñanza, memoria o DX.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema
+      description: ¿Qué fricción real te está bloqueando?
+      placeholder: Describe el problema actual.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Propuesta
+      description: ¿Qué comportamiento nuevo propones?
+      placeholder: Describe la solución sugerida.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impacto esperado
+      description: ¿Qué mejora concreta debería verse?
+      placeholder: precisión, latencia, onboarding, seguridad, etc.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: areas
+    attributes:
+      label: Área principal
+      options:
+        - label: Selector / ranking
+        - label: Teaching packet
+        - label: Engram / memoria durable
+        - label: Seguridad / redacción
+        - label: CLI / operabilidad
+        - label: Benchmarks / calidad

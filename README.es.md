@@ -234,6 +234,16 @@ La idea conceptual es:
 
 El entrypoint de desarrollo sigue siendo `src/cli.js`. El build `dist/` es el puente hacia una migracion total, no una excusa para fingir que ya llegamos.
 
+### Que significa "migracion real" en este repo
+
+Una migracion se considera real solo cuando se cumplen las 3 cosas:
+
+1. el modulo fuente pasa a `.ts`
+2. el comportamiento se valida por runtime en `dist/`
+3. la distribucion del paquete usa `dist` como superficie ejecutable
+
+Hoy ya quedaron forzados el punto (2) y (3) con build+smoke en CI y `bin` apuntando a `dist/cli.js`.
+
 ## Privacidad y politica de escaneo
 
 El scanner del workspace no hace un volcado ciego.
@@ -264,6 +274,17 @@ Los overrides de seguridad deben usarse con criterio:
 - `extraSensitivePathFragments` para marcar zonas sensibles propias del repo que nunca deberian entrar al contexto
 
 La explicacion de seguridad y limites operativos esta en `docs/security-model.md`.
+
+## Superficies open source para colaborar
+
+Para que el repo sea mas usable por terceros, GitHub ya tiene:
+
+- templates de Issues:
+  - bug report
+  - feature request
+  - usage question
+- template de Pull Request con checklist de validacion
+- politica de seguridad en `SECURITY.md`
 
 ## Contrato JSON estable
 

@@ -4,12 +4,14 @@
   "private": true,
   "type": "module",
   "bin": {
-    "lcs": "./src/cli.js"
+    "lcs": "./dist/cli.js"
   },
   "scripts": {
     "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\"",
     "build": "npm run clean && tsc --project tsconfig.build.json",
     "build:smoke": "node dist/cli.js doctor --format json",
+    "dev:cli": "node src/cli.js",
+    "dist:cli": "node dist/cli.js",
     "test": "node test/run-tests.js",
     "typecheck": "tsc --project tsconfig.json",
     "benchmark": "node benchmark/run-benchmark.js",
@@ -36,7 +38,8 @@
     "vertical:ts:teach:debug": "node src/cli.js teach --workspace examples/typescript-backend --task \"Harden auth middleware\" --objective \"Teach request-boundary validation in a TypeScript server\" --changed-files \"src/auth/middleware.ts,test/auth/middleware.test.ts\" --project typescript-backend-vertical --no-recall --min-score 0.25 --debug --format text",
     "vertical:ts:seed-memory": "node scripts/seed-typescript-vertical-memory.js",
     "vertical:ts:teach:memory": "node src/cli.js teach --workspace examples/typescript-backend --task \"Harden auth middleware\" --objective \"Teach request-boundary validation in a TypeScript server\" --changed-files \"src/auth/middleware.ts,test/auth/middleware.test.ts\" --project typescript-backend-vertical --recall-query \"auth validation order\" --token-budget 520 --max-chunks 6 --min-score 0.25 --format text",
-    "vertical:ts:readme": "node src/cli.js readme --workspace examples/typescript-backend --focus \"typescript backend auth middleware request boundary\" --output examples/typescript-backend/README.LEARN.md --format text"
+    "vertical:ts:readme": "node src/cli.js readme --workspace examples/typescript-backend --focus \"typescript backend auth middleware request boundary\" --output examples/typescript-backend/README.LEARN.md --format text",
+    "prepublishOnly": "npm run build && npm run build:smoke"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
