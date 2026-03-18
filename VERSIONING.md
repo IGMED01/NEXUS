@@ -15,6 +15,14 @@ Keep package metadata, Git tags, and GitHub releases aligned.
 4. No release tag should be created from a dirty working tree.
 5. Do not skip changelog entries for user-visible CLI, CI, contract, security, or memory behavior changes.
 
+## Contract compatibility policy (CLI JSON)
+
+- **Patch**: non-breaking internal changes, docs, or optional JSON fields added.
+- **Minor**: additive JSON contract evolution that keeps existing required v1 paths/types valid.
+- **Major**: any breaking contract change (remove/rename required path, change required type, or semantic break in required field meaning).
+
+For every release, include a contract-impact note in `CHANGELOG.md` (`Contracts` subsection when relevant).
+
 ## Release checklist (minimum)
 
 1. `npm.cmd test`

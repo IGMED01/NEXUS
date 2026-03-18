@@ -478,8 +478,8 @@ When you pass `--format json`, the CLI now emits a versioned contract that inclu
 
 Compatibility policy now enforced in tests:
 
-- required v1 paths for `doctor`, `teach`, and `ingest-security` live in `test/fixtures/contracts/v1/`
-- `npm test` validates that those required paths and types still exist
+- required v1 paths for all JSON commands (`version`, `doctor`, `init`, `ingest-security`, `select`, `teach`, `readme`, `recall`, `remember`, `close`) live in `test/fixtures/contracts/v1/`
+- `npm test` validates that those required paths and types still exist per command
 - adding new optional fields is allowed
 - removing/renaming required fields requires a schema-version bump and fixture update
 

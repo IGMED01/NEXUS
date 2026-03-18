@@ -139,7 +139,7 @@ function normalizeNewlines(value) {
 }
 
 /**
- * @param {"doctor" | "teach" | "ingest-security"} name
+ * @param {string} name
  */
 async function loadContractFixture(name) {
   const fixturePath = path.join(
@@ -219,6 +219,19 @@ function assertContractCompatibility(contract, fixture, label) {
     }
   }
 }
+
+const JSON_CONTRACT_COMMANDS = [
+  "version",
+  "doctor",
+  "init",
+  "ingest-security",
+  "select",
+  "teach",
+  "readme",
+  "recall",
+  "remember",
+  "close"
+];
 
 /**
  * @param {string} message
@@ -640,7 +653,9 @@ run("cli select workspace json exposes scan stats metadata", async () => {
   ]);
 
   const parsed = JSON.parse(result.stdout);
+  const fixture = await loadContractFixture("select");
   assert.equal(result.exitCode, 0);
+  assertContractCompatibility(parsed, fixture, "select.v1");
   assert.equal(parsed.command, "select");
   assert.equal(typeof parsed.meta.durationMs, "number");
   assert.equal(parsed.meta.scanStats.includedFiles > 0, true);
@@ -984,6 +999,18 @@ run("project config parses security policy overrides", () => {
   assert.deepEqual(parsed.scan.ignoreDirs, [".cache", "vendor-cache"]);
 });
 
+run("v1 contract fixture exists for every JSON CLI command", async () => {
+  for (const command of JSON_CONTRACT_COMMANDS) {
+    const fixture = await loadContractFixture(command);
+    assert.equal(Array.isArray(fixture.requiredPaths), true, `${command}: requiredPaths missing`);
+    assert.equal(
+      isRecord(fixture.pathTypes),
+      true,
+      `${command}: pathTypes must be an object`
+    );
+  }
+});
+
 run("cli help documents all supported commands including doctor init and ingest-security", async () => {
   const result = await runCli(["help"]);
 
@@ -1052,8 +1079,10 @@ run("cli version supports json format", async () => {
   const expectedVersion = packageJson.version;
   const result = await runCli(["version", "--format", "json"]);
   const parsed = JSON.parse(result.stdout);
+  const fixture = await loadContractFixture("version");
 
   assert.equal(result.exitCode, 0);
+  assertContractCompatibility(parsed, fixture, "version.v1");
   assert.equal(parsed.command, "version");
   assert.equal(parsed.status, "ok");
   assert.equal(parsed.version, expectedVersion);
@@ -1083,6 +1112,28 @@ run("init creates config with a stable project id from package name", async () =
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
+});
+
+run("cli init emits a stable JSON contract", async () => {
+  const configPath = path.join("test-output", "init-contract.json");
+  await rm(configPath, { force: true });
+
+  const result = await runCli([
+    "init",
+    "--config",
+    configPath,
+    "--force",
+    "true",
+    "--format",
+    "json"
+  ]);
+
+  const parsed = JSON.parse(result.stdout);
+  const fixture = await loadContractFixture("init");
+  assert.equal(result.exitCode, 0);
+  assertContractCompatibility(parsed, fixture, "init.v1");
+  assert.equal(parsed.command, "init");
+  assert.match(parsed.path, /init-contract\.json/);
 });
 
 run("doctor reports missing dependencies as actionable warnings", async () => {
@@ -1784,6 +1835,25 @@ run("cli readme writes markdown output", async () => {
   assert.match(written, /## Dependencies/);
 });
 
+run("cli readme emits a stable JSON contract", async () => {
+  const result = await runCli([
+    "readme",
+    "--input",
+    "examples/auth-context.json",
+    "--focus",
+    "learning context cli noise cancellation",
+    "--format",
+    "json"
+  ]);
+
+  const parsed = JSON.parse(result.stdout);
+  const fixture = await loadContractFixture("readme");
+  assert.equal(result.exitCode, 0);
+  assertContractCompatibility(parsed, fixture, "readme.v1");
+  assert.equal(parsed.command, "readme");
+  assert.equal(typeof parsed.markdown, "string");
+});
+
 run("numeric CLI options reject invalid ranges", async () => {
   const failure = await runCli([
     "select",
@@ -2313,7 +2383,9 @@ run("cli recall uses config defaults and emits a stable JSON contract", async ()
   );
 
   const parsed = JSON.parse(result.stdout);
+  const fixture = await loadContractFixture("recall");
   assert.equal(result.exitCode, 0);
+  assertContractCompatibility(parsed, fixture, "recall.v1");
   assert.equal(parsed.schemaVersion, "1.0.0");
   assert.equal(parsed.command, "recall");
   assert.equal(parsed.status, "ok");
@@ -2547,6 +2619,60 @@ run("cli remember saves a durable memory through Engram", async () => {
   assert.match(result.stdout, /architecture\/auth-order/);
 });
 
+run("cli remember emits a stable JSON contract", async () => {
+  const fakeClient = {
+    async recallContext() {
+      throw new Error("not used");
+    },
+    async searchMemories() {
+      throw new Error("not used");
+    },
+    async saveMemory(input) {
+      return {
+        action: "save",
+        title: input.title,
+        content: input.content,
+        project: input.project ?? "",
+        type: input.type ?? "",
+        scope: input.scope ?? "",
+        topic: input.topic ?? "",
+        stdout: "Saved observation #2",
+        dataDir: ".engram"
+      };
+    },
+    async closeSession() {
+      throw new Error("not used");
+    }
+  };
+
+  const result = await runCli(
+    [
+      "remember",
+      "--title",
+      "JWT order",
+      "--content",
+      "Validation now runs before route handlers.",
+      "--project",
+      "learning-context-system",
+      "--type",
+      "decision",
+      "--topic",
+      "architecture/auth-order",
+      "--format",
+      "json"
+    ],
+    {
+      engramClient: fakeClient
+    }
+  );
+
+  const parsed = JSON.parse(result.stdout);
+  const fixture = await loadContractFixture("remember");
+  assert.equal(result.exitCode, 0);
+  assertContractCompatibility(parsed, fixture, "remember.v1");
+  assert.equal(parsed.command, "remember");
+});
+
 run("cli close stores a structured session-close memory", async () => {
   /** @type {Array<unknown>} */
   const calls = [];
@@ -2604,6 +2730,61 @@ run("cli close stores a structured session-close memory", async () => {
     type: "learning"
   });
   assert.match(result.stdout, /Session close note saved/);
+});
+
+run("cli close emits a stable JSON contract", async () => {
+  const fakeClient = {
+    async recallContext() {
+      throw new Error("not used");
+    },
+    async searchMemories() {
+      throw new Error("not used");
+    },
+    async saveMemory() {
+      throw new Error("not used");
+    },
+    async closeSession(input) {
+      return {
+        action: "close",
+        title: input.title ?? "Session close - 2026-03-18",
+        summary: input.summary,
+        learned: input.learned ?? "",
+        next: input.next ?? "",
+        content: "## Session Close Summary",
+        project: input.project ?? "",
+        type: input.type ?? "",
+        scope: input.scope ?? "",
+        topic: "",
+        stdout: "Saved observation #3",
+        dataDir: ".engram"
+      };
+    }
+  };
+
+  const result = await runCli(
+    [
+      "close",
+      "--summary",
+      "Integrated recall and remember commands.",
+      "--learned",
+      "Context retrieval and durable memory must stay separate.",
+      "--next",
+      "Connect recall output to the teaching packet.",
+      "--project",
+      "learning-context-system",
+      "--format",
+      "json"
+    ],
+    {
+      engramClient: fakeClient
+    }
+  );
+
+  const parsed = JSON.parse(result.stdout);
+  const fixture = await loadContractFixture("close");
+  assert.equal(result.exitCode, 0);
+  assertContractCompatibility(parsed, fixture, "close.v1");
+  assert.equal(parsed.command, "close");
 });
 
 run("cli teach consumes recalled Engram memory automatically", async () => {

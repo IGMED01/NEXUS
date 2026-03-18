@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Contracts
+- Added v1 compatibility fixtures/tests for all JSON CLI commands (`version`, `doctor`, `init`, `ingest-security`, `select`, `teach`, `readme`, `recall`, `remember`, `close`).
+- No breaking JSON contract change.
+
 ## [0.2.1] - 2026-03-18
 
 ### Added
@@ -16,6 +20,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Changed
 - Completed dependency maintenance batch from Dependabot (GitHub Actions + npm root + TypeScript vertical).
 - Hardened `src/memory/engram-client.js` to normalize `stdout/stderr` from `string | Buffer`, preventing strict typecheck failures after Node type upgrades.
+
+### Contracts
+- No breaking JSON contract change.
 
 ## [0.2.0] - 2026-03-18
 
@@ -30,6 +37,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Changed
 - Teach flow now supports automatic Engram recall integration and degraded-mode classification.
 - Incremental TypeScript migration track expanded for critical modules with build smoke checks.
+
+### Contracts
+- Established initial `schemaVersion: 1.0.0` JSON contract baseline for CLI outputs.
 
 ## [0.1.0] - 2026-03-17
 
