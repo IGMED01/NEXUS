@@ -428,6 +428,13 @@ When you pass `--format json`, the CLI now emits a versioned contract that inclu
 - `config`
 - `meta`
 
+Compatibility policy now enforced in tests:
+
+- required v1 paths for `doctor` and `teach` live in `test/fixtures/contracts/v1/`
+- `npm test` validates that those required paths and types still exist
+- adding new optional fields is allowed
+- removing/renaming required fields requires a schema-version bump and fixture update
+
 Concept:
 
 - **human output** is optimized for reading
