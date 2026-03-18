@@ -18,6 +18,8 @@
     "src/contracts/config-contracts.js",
     "src/io/config-file.js",
     "src/io/text-file.js",
-    "src/security/secret-redaction.js"
+    "src/io/workspace-chunks.js",
+    "src/security/secret-redaction.js",
+    "src/system/project-ops.js"
   ]
 }

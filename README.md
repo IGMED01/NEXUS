@@ -280,6 +280,8 @@ Current real `.ts` migrations in `src/`:
 - `src/io/text-file.ts`
 - `src/contracts/config-contracts.ts`
 - `src/io/config-file.ts`
+- `src/io/workspace-chunks.ts`
+- `src/system/project-ops.ts`
 
 Compatibility note:
 

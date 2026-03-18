@@ -151,12 +151,14 @@ That is the honest migration strategy:
 
 Package distribution now points to `dist/cli.js` as executable surface, while local development can still use `src/cli.js`.
 
-Current migrated `.ts` leaf modules:
+Current migrated `.ts` modules in `src/`:
 
 - `src/security/secret-redaction.ts`
 - `src/io/text-file.ts`
 - `src/contracts/config-contracts.ts`
 - `src/io/config-file.ts`
+- `src/io/workspace-chunks.ts`
+- `src/system/project-ops.ts`
 
 Compatibility detail:
 

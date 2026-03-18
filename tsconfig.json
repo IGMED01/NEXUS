@@ -25,13 +25,13 @@
     "src/io/config-file.js",
     "src/io/config-file.ts",
     "src/io/text-file.ts",
-    "src/io/workspace-chunks.js",
+    "src/io/workspace-chunks.ts",
     "src/learning/mentor-loop.js",
     "src/memory/engram-client.js",
     "src/memory/recall-queries.js",
     "src/memory/teach-recall.js",
     "src/security/secret-redaction.ts",
-    "src/system/project-ops.js",
+    "src/system/project-ops.ts",
     "src/types/**/*.d.ts"
   ]
 }

@@ -57,6 +57,7 @@ Move the core from "disciplined JavaScript" to "strictly typed and safer to refa
 ### Milestone 3 - Real `.ts` migration
 
 - [x] start real `.ts` migration with leaf modules (`src/security/secret-redaction.ts`, `src/io/text-file.ts`, `src/contracts/config-contracts.ts`, `src/io/config-file.ts`)
+- [x] migrate scanner/ops modules to `.ts` track (`src/io/workspace-chunks.ts`, `src/system/project-ops.ts`) while preserving Node 20/22 source runtime compatibility
 - [x] add build output strategy for publishable CLI use
 - preserve current command behavior and benchmark outputs
 
