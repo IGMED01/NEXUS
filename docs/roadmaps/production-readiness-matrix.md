@@ -15,6 +15,7 @@ Move the project from "strong demo" to "production-grade open-source CLI" with e
 
 2. **Real Engram E2E reliability (happy path + failures)**
    - Problem: production depends on Engram availability and degraded behavior quality.
+   - Status (2026-03-18): **in progress** (failure matrix + degraded tests + deterministic teach retry/backoff added)
    - Done when:
      - E2E tests cover binary missing, timeout, malformed output, degraded recall fallback
      - retry/backoff behavior is deterministic and tested

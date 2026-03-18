@@ -2087,7 +2087,68 @@ run("teach recall strategy reports recoverable provider errors without throwing"
 
   assert.equal(result.memoryRecall.status, "failed");
   assert.match(result.memoryRecall.error, /temporary Engram failure/);
+  assert.match(result.memoryRecall.error, /retryAttempts=2/);
   assert.equal(result.chunks.length, 0);
+});
+
+run("teach recall retries transient failures before succeeding", async () => {
+  let attempts = 0;
+  const result = await resolveTeachRecall({
+    task: "Integrate Engram CLI",
+    objective: "Teach memory flow",
+    focus: "engram cli memory retry",
+    changedFiles: ["src/memory/teach-recall.js"],
+    project: "learning-context-system",
+    explicitQuery: "engram cli integration",
+    limit: 2,
+    retryAttempts: 3,
+    retryBackoffMs: 0,
+    baseChunks: [],
+    async searchMemories() {
+      attempts += 1;
+
+      if (attempts < 3) {
+        throw new Error("ETIMEDOUT while querying Engram");
+      }
+
+      return {
+        stdout: [
+          "Found 1 memories:",
+          "",
+          "[1] #11 (architecture) â€” CLI Engram integration",
+          "    Memory retry recovered and produced a stable recall payload.",
+          "    2026-03-18 17:00:00 | project: learning-context-system | scope: project"
+        ].join("\n")
+      };
+    }
+  });
+
+  assert.equal(result.memoryRecall.status, "recalled");
+  assert.equal(result.memoryRecall.recoveredChunks, 1);
+  assert.equal(attempts, 3);
+});
+
+run("teach recall does not retry non-recoverable failures", async () => {
+  let attempts = 0;
+  const result = await resolveTeachRecall({
+    task: "Integrate Engram CLI",
+    objective: "Teach memory flow",
+    focus: "engram cli binary path",
+    changedFiles: ["src/memory/engram-client.js"],
+    project: "learning-context-system",
+    explicitQuery: "engram cli binary",
+    retryAttempts: 4,
+    retryBackoffMs: 0,
+    baseChunks: [],
+    async searchMemories() {
+      attempts += 1;
+      throw new Error("ENOENT binary not found");
+    }
+  });
+
+  assert.equal(result.memoryRecall.status, "failed");
+  assert.equal(result.memoryRecall.degraded, true);
+  assert.equal(attempts, 1);
 });
 
 run("teach recall treats malformed provider output as empty recall instead of crash", async () => {

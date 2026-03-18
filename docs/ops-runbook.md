@@ -85,13 +85,14 @@ If Engram is unavailable:
 | Failure kind | Typical signal | CLI behavior | Immediate recovery |
 | --- | --- | --- | --- |
 | `binary-missing` | `ENOENT`, file not found | `recall` can return degraded contract (if enabled) with `failureKind` + `fixHint` | set `--engram-bin` correctly or update `learning-context.config.json` |
-| `timeout` | `ETIMEDOUT`, request timed out | degraded recall if enabled; warnings include timeout classification | retry with narrower query/scope, verify Engram process health |
+| `timeout` | `ETIMEDOUT`, request timed out | `teach` retries transient provider failures deterministically (default: 2 attempts, linear backoff 40ms) before degrading | retry with narrower query/scope, verify Engram process health |
 | `malformed-output` | parse/format mismatch from provider output | degraded recall if enabled; explicit classification in output | update Engram, run `doctor`, then `recall --debug` |
 | strict recall mode | `teach --strict-recall true` with provider failure | command fails fast (non-degraded) | disable strict mode for continuity or fix provider immediately |
 
 Validation notes:
 
 - CI tests now assert contract-safe degraded behavior for missing binary and timeout classification.
+- CI tests assert deterministic retry/backoff behavior for transient `teach` recall failures.
 - CI tests also assert strict recall throws instead of silently degrading.
 
 ## 5) Release checkpoint
