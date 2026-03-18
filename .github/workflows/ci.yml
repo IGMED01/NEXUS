@@ -45,6 +45,19 @@ jobs:
       - name: Run portable tests
         run: npm test
 
+      - name: Run security pipeline quality gate
+        run: npm run security:pipeline:example
+
+      - name: Upload security pipeline artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-pipeline-node-${{ matrix.node-version }}
+          path: |
+            test-output/security-pipeline/security-chunks.json
+            test-output/security-pipeline/security-teach.json
+          if-no-files-found: warn
+
       - name: Run selector benchmark
         run: npm run benchmark
 

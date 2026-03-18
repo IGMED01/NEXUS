@@ -43,6 +43,20 @@ Verify in JSON:
 - `observability.recall.hitRate`
 - `observability.commands` (per-command duration/degraded trends)
 
+## 2c) Security pipeline quality gate
+
+```bash
+npm.cmd run security:pipeline:example
+```
+
+Expected:
+
+- command exits `0`
+- output includes `quality gate: PASS`
+- in CI, artifacts are uploaded per Node version:
+  - `security-chunks.json`
+  - `security-teach.json`
+
 ## 3) Memory safety operating rules
 
 - Keep `memory.autoRecall=true` for normal teach flows.
