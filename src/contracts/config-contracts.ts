@@ -41,6 +41,10 @@ export interface ProjectSecurityConfig {
   extraSensitivePathFragments: string[];
 }
 
+export interface ProjectScanConfig {
+  ignoreDirs: string[];
+}
+
 export interface ProjectConfig {
   schemaVersion: string;
   project: string;
@@ -50,6 +54,7 @@ export interface ProjectConfig {
   memory: ProjectMemoryConfig;
   engram: ProjectEngramConfig;
   security: ProjectSecurityConfig;
+  scan: ProjectScanConfig;
 }
 
 function fail(message: string): never {
@@ -164,6 +169,9 @@ export function defaultProjectConfig(): ProjectConfig {
       ignoreGeneratedFiles: true,
       allowSensitivePaths: [],
       extraSensitivePathFragments: []
+    },
+    scan: {
+      ignoreDirs: [".tmp", ".cache", "tmp", ".turbo", ".next", "out"]
     }
   };
 }
@@ -194,11 +202,16 @@ export function validateProjectConfig(value: unknown): ProjectConfig {
     assertObject(config.security, "Project config.security");
   }
 
+  if (config.scan !== undefined) {
+    assertObject(config.scan, "Project config.scan");
+  }
+
   const output = config.output;
   const selection = config.selection;
   const memory = config.memory;
   const engram = config.engram;
   const security = config.security;
+  const scan = config.scan;
 
   const defaultFormat = optionalString(output?.defaultFormat, "Project config.output.defaultFormat");
 
@@ -284,6 +297,11 @@ export function validateProjectConfig(value: unknown): ProjectConfig {
           security?.extraSensitivePathFragments,
           "Project config.security.extraSensitivePathFragments"
         ) ?? defaults.security.extraSensitivePathFragments
+    },
+    scan: {
+      ignoreDirs:
+        optionalStringArray(scan?.ignoreDirs, "Project config.scan.ignoreDirs") ??
+        defaults.scan.ignoreDirs
     }
   };
 }

@@ -31,5 +31,8 @@
     "ignoreGeneratedFiles": true,
     "allowSensitivePaths": [],
     "extraSensitivePathFragments": []
+  },
+  "scan": {
+    "ignoreDirs": [".tmp", ".cache", "tmp", ".turbo", ".next", "out"]
   }
 }

@@ -57,14 +57,21 @@
 
 /**
  * @typedef {{
+ *   ignoreDirs: string[]
+ * }} ProjectScanConfig
+ */
+
+/**
+ * @typedef {{
  *   schemaVersion: string,
  *   project: string,
- *   workspace: string,
+  *   workspace: string,
  *   output: ProjectOutputConfig,
  *   selection: ProjectSelectionConfig,
  *   memory: ProjectMemoryConfig,
  *   engram: ProjectEngramConfig,
- *   security: ProjectSecurityConfig
+ *   security: ProjectSecurityConfig,
+ *   scan: ProjectScanConfig
  * }} ProjectConfig
  */
 
@@ -213,6 +220,9 @@ export function defaultProjectConfig() {
       ignoreGeneratedFiles: true,
       allowSensitivePaths: [],
       extraSensitivePathFragments: []
+    },
+    scan: {
+      ignoreDirs: [".tmp", ".cache", "tmp", ".turbo", ".next", "out"]
     }
   };
 }
@@ -247,11 +257,16 @@ export function validateProjectConfig(value) {
     assertObject(config.security, "Project config.security");
   }
 
+  if (config.scan !== undefined) {
+    assertObject(config.scan, "Project config.scan");
+  }
+
   const output = /** @type {Record<string, unknown> | undefined} */ (config.output);
   const selection = /** @type {Record<string, unknown> | undefined} */ (config.selection);
   const memory = /** @type {Record<string, unknown> | undefined} */ (config.memory);
   const engram = /** @type {Record<string, unknown> | undefined} */ (config.engram);
   const security = /** @type {Record<string, unknown> | undefined} */ (config.security);
+  const scan = /** @type {Record<string, unknown> | undefined} */ (config.scan);
 
   const defaultFormat = optionalString(output?.defaultFormat, "Project config.output.defaultFormat");
 
@@ -362,6 +377,11 @@ export function validateProjectConfig(value) {
           security?.extraSensitivePathFragments,
           "Project config.security.extraSensitivePathFragments"
         ) ?? defaults.security.extraSensitivePathFragments
+    },
+    scan: {
+      ignoreDirs:
+        optionalStringArray(scan?.ignoreDirs, "Project config.scan.ignoreDirs") ??
+        defaults.scan.ignoreDirs
     }
   };
 }

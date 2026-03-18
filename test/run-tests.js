@@ -770,6 +770,32 @@ run("workspace scanning ignores .tmp directories to avoid local clone noise", as
   }
 });
 
+run("workspace scanning honors configurable ignore directories", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-ignore-dirs-"));
+
+  try {
+    await mkdir(path.join(tempRoot, "vendor-cache", "src"), { recursive: true });
+    await mkdir(path.join(tempRoot, "src"), { recursive: true });
+    await writeFile(
+      path.join(tempRoot, "vendor-cache", "src", "noise.ts"),
+      "export const noise = true;\n",
+      "utf8"
+    );
+    await writeFile(path.join(tempRoot, "src", "keep.ts"), "export const keep = true;\n", "utf8");
+
+    const result = await loadWorkspaceChunks(tempRoot, {
+      scan: {
+        ignoreDirs: ["vendor-cache"]
+      }
+    });
+
+    assert.equal(result.payload.chunks.some((chunk) => chunk.source.includes("vendor-cache")), false);
+    assert.equal(result.payload.chunks.some((chunk) => chunk.source === "src/keep.ts"), true);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 run("workspace scanning understands the TypeScript backend vertical", async () => {
   const result = await loadWorkspaceChunks("examples/typescript-backend");
 
@@ -918,6 +944,9 @@ run("project config parses security policy overrides", () => {
         ignoreGeneratedFiles: false,
         allowSensitivePaths: [".env.example"],
         extraSensitivePathFragments: ["fixtures/private"]
+      },
+      scan: {
+        ignoreDirs: [".cache", "vendor-cache"]
       }
     }),
     "inline"
@@ -930,6 +959,7 @@ run("project config parses security policy overrides", () => {
   assert.equal(parsed.security.ignoreGeneratedFiles, false);
   assert.deepEqual(parsed.security.allowSensitivePaths, [".env.example"]);
   assert.deepEqual(parsed.security.extraSensitivePathFragments, ["fixtures/private"]);
+  assert.deepEqual(parsed.scan.ignoreDirs, [".cache", "vendor-cache"]);
 });
 
 run("cli help documents all supported commands including doctor and init", async () => {

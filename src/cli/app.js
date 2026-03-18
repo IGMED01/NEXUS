@@ -199,7 +199,8 @@ async function loadChunkSource(command, options, loadedConfig) {
 
   if (options.workspace || command === "readme") {
     return loadWorkspaceChunks(options.workspace || ".", {
-      security: loadedConfig?.config.security
+      security: loadedConfig?.config.security,
+      scan: loadedConfig?.config.scan
     });
   }
 

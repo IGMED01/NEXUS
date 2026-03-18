@@ -83,6 +83,7 @@ Use that file for stable defaults such as:
 - memory automation (`memory.autoRecall`, `memory.autoRemember`)
 - Engram paths
 - scan safety policy
+- scan noise policy (`scan.ignoreDirs`)
 
 Security note:
 
@@ -200,11 +201,13 @@ See `docs/security-model.md` for the exact policy and limits.
 - `security.ignoreGeneratedFiles`
 - `security.allowSensitivePaths`
 - `security.extraSensitivePathFragments`
+- `scan.ignoreDirs`
 
 Use those fields carefully:
 
 - `allowSensitivePaths` is for known-safe fixtures such as teaching examples
 - `extraSensitivePathFragments` is for custom repo zones that should never be scanned
+- `scan.ignoreDirs` is for local noise directories that should never enter context ranking
 
 Example:
 
@@ -216,6 +219,9 @@ Example:
     "ignoreGeneratedFiles": true,
     "allowSensitivePaths": [".env.example"],
     "extraSensitivePathFragments": ["internal/private-fixtures"]
+  },
+  "scan": {
+    "ignoreDirs": [".tmp", ".cache", "tmp", ".turbo", ".next", "out"]
   }
 }
 ```

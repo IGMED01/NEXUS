@@ -33,11 +33,18 @@ import {
 
 /**
  * @typedef {{
+ *   ignoreDirs?: string[]
+ * }} WorkspaceScanOptions
+ */
+
+/**
+ * @typedef {{
  *   security?: WorkspaceSecurityOptions
+ *   scan?: WorkspaceScanOptions
  * }} LoadWorkspaceChunksOptions
  */
 
-const IGNORED_DIRS = new Set([
+const DEFAULT_IGNORED_DIRS = [
   ".git",
   ".codex",
   ".tmp",
@@ -46,7 +53,7 @@ const IGNORED_DIRS = new Set([
   "build",
   "coverage",
   "test-output"
-]);
+];
 
 const ALLOWED_EXTENSIONS = new Set([
   ".js",
@@ -66,6 +73,17 @@ const ALLOWED_EXTENSIONS = new Set([
 ]);
 
 const MAX_FILE_CHARS = 32000;
+
+/**
+ * @param {WorkspaceScanOptions | undefined} scan
+ */
+function resolveIgnoredDirs(scan) {
+  const configured = Array.isArray(scan?.ignoreDirs)
+    ? scan.ignoreDirs.map((entry) => entry.trim()).filter(Boolean)
+    : [];
+
+  return new Set([...DEFAULT_IGNORED_DIRS, ...configured]);
+}
 
 /**
  * @param {string} value
@@ -174,15 +192,23 @@ function createScanStats(rootPath) {
  * @param {WorkspaceFile[]} files
  * @param {ScanStats} stats
  * @param {ReturnType<typeof resolveSecurityPolicy>} securityPolicy
+ * @param {Set<string>} ignoredDirs
  */
-async function walk(rootPath, currentPath, files, stats, securityPolicy) {
+async function walk(rootPath, currentPath, files, stats, securityPolicy, ignoredDirs) {
   const entries = await readdir(currentPath, { withFileTypes: true });
   const sortedEntries = entries.sort((left, right) => left.name.localeCompare(right.name));
 
   for (const entry of sortedEntries) {
     if (entry.isDirectory()) {
-      if (!IGNORED_DIRS.has(entry.name)) {
-        await walk(rootPath, resolve(currentPath, entry.name), files, stats, securityPolicy);
+      if (!ignoredDirs.has(entry.name)) {
+        await walk(
+          rootPath,
+          resolve(currentPath, entry.name),
+          files,
+          stats,
+          securityPolicy,
+          ignoredDirs
+        );
       }
 
       continue;
@@ -231,8 +257,9 @@ export async function loadWorkspaceChunks(rootPath, options = {}) {
   const files = [];
   const stats = createScanStats(resolvedRoot);
   const securityPolicy = resolveSecurityPolicy(options.security);
+  const ignoredDirs = resolveIgnoredDirs(options.scan);
 
-  await walk(resolvedRoot, resolvedRoot, files, stats, securityPolicy);
+  await walk(resolvedRoot, resolvedRoot, files, stats, securityPolicy, ignoredDirs);
 
   /** @type {Chunk[]} */
   const chunks = [];

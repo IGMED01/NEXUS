@@ -23,8 +23,13 @@ export interface WorkspaceSecurityOptions {
   extraSensitivePathFragments?: string[];
 }
 
+export interface WorkspaceScanOptions {
+  ignoreDirs?: string[];
+}
+
 export interface LoadWorkspaceChunksOptions {
   security?: WorkspaceSecurityOptions;
+  scan?: WorkspaceScanOptions;
 }
 
 interface ChunkSignals {
@@ -36,7 +41,7 @@ interface ChunkSignals {
 
 type SecurityPolicy = ReturnType<typeof resolveSecurityPolicy>;
 
-const IGNORED_DIRS = new Set([
+const DEFAULT_IGNORED_DIRS = [
   ".git",
   ".codex",
   ".tmp",
@@ -45,7 +50,7 @@ const IGNORED_DIRS = new Set([
   "build",
   "coverage",
   "test-output"
-]);
+];
 
 const ALLOWED_EXTENSIONS = new Set([
   ".js",
@@ -65,6 +70,14 @@ const ALLOWED_EXTENSIONS = new Set([
 ]);
 
 const MAX_FILE_CHARS = 32000;
+
+function resolveIgnoredDirs(scan: WorkspaceScanOptions | undefined): Set<string> {
+  const configured = Array.isArray(scan?.ignoreDirs)
+    ? scan.ignoreDirs.map((entry) => entry.trim()).filter(Boolean)
+    : [];
+
+  return new Set([...DEFAULT_IGNORED_DIRS, ...configured]);
+}
 
 function toPosixPath(value: string): string {
   return value.replace(/\\/g, "/");
@@ -155,15 +168,23 @@ async function walk(
   currentPath: string,
   files: WorkspaceFile[],
   stats: ScanStats,
-  securityPolicy: SecurityPolicy
+  securityPolicy: SecurityPolicy,
+  ignoredDirs: Set<string>
 ): Promise<void> {
   const entries = await readdir(currentPath, { withFileTypes: true });
   const sortedEntries = entries.sort((left, right) => left.name.localeCompare(right.name));
 
   for (const entry of sortedEntries) {
     if (entry.isDirectory()) {
-      if (!IGNORED_DIRS.has(entry.name)) {
-        await walk(rootPath, resolve(currentPath, entry.name), files, stats, securityPolicy);
+      if (!ignoredDirs.has(entry.name)) {
+        await walk(
+          rootPath,
+          resolve(currentPath, entry.name),
+          files,
+          stats,
+          securityPolicy,
+          ignoredDirs
+        );
       }
 
       continue;
@@ -210,8 +231,9 @@ export async function loadWorkspaceChunks(
   const files: WorkspaceFile[] = [];
   const stats = createScanStats(resolvedRoot);
   const securityPolicy = resolveSecurityPolicy(options.security);
+  const ignoredDirs = resolveIgnoredDirs(options.scan);
 
-  await walk(resolvedRoot, resolvedRoot, files, stats, securityPolicy);
+  await walk(resolvedRoot, resolvedRoot, files, stats, securityPolicy, ignoredDirs);
 
   const chunks: Chunk[] = [];
 
