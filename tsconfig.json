@@ -31,9 +31,9 @@
     "src/io/workspace-chunks.ts",
     "src/learning/mentor-loop.js",
     "src/memory/engram-client.js",
-    "src/memory/engram-auto-orchestrator.js",
+    "src/memory/engram-auto-orchestrator.ts",
     "src/memory/recall-queries.ts",
-    "src/memory/teach-recall.js",
+    "src/memory/teach-recall.ts",
     "src/security/secret-redaction.ts",
     "src/system/project-ops.ts",
     "src/types/**/*.d.ts"

@@ -7,6 +7,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+- Added `.ts` build-track sources for memory teach orchestration (`src/memory/teach-recall.ts`, `src/memory/engram-auto-orchestrator.ts`) and wired TypeScript configs to prefer those sources during typecheck/build.
+
 ### Contracts
 - Added v1 compatibility fixtures/tests for all JSON CLI commands (`version`, `doctor`, `init`, `ingest-security`, `select`, `teach`, `readme`, `recall`, `remember`, `close`).
 - Added degraded recall contract coverage for `malformed-output` classification in `recall --format json`.
