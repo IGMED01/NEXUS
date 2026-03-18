@@ -237,12 +237,13 @@ export function buildKnowledgeBlocks(title, meta, timestamp) {
 /**
  * @param {NotionResolvedConfig} config
  * @param {NotionFetch} fetchImpl
+ * @param {"POST" | "PATCH"} method
  * @param {string} path
  * @param {object} payload
  */
-async function postNotion(config, fetchImpl, path, payload) {
+async function postNotion(config, fetchImpl, method, path, payload) {
   const response = await fetchImpl(`${config.apiBaseUrl}${path}`, {
-    method: "POST",
+    method,
     headers: {
       Authorization: `Bearer ${config.token}`,
       "Notion-Version": NOTION_API_VERSION,
@@ -343,9 +344,15 @@ export function createNotionSyncClient(options = {}) {
 
     for (const candidate of pageIdCandidates) {
       try {
-        await postNotion(config, fetchImpl, `/blocks/${encodeURIComponent(candidate)}/children`, {
-          children
-        });
+        await postNotion(
+          config,
+          fetchImpl,
+          "PATCH",
+          `/blocks/${encodeURIComponent(candidate)}/children`,
+          {
+            children
+          }
+        );
         usedPageId = candidate;
         lastError = null;
         break;
