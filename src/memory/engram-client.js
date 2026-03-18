@@ -13,8 +13,8 @@ const execFile = promisify(execFileCallback);
 
 /**
  * @typedef {{
- *   stdout?: string,
- *   stderr?: string
+ *   stdout?: string | Buffer,
+ *   stderr?: string | Buffer
  * }} CommandOutput
  */
 
@@ -52,6 +52,21 @@ async function defaultExec(file, args, options) {
     windowsHide: true,
     maxBuffer: 1024 * 1024 * 5
   });
+}
+
+/**
+ * @param {unknown} value
+ */
+function normalizeExecText(value) {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (Buffer.isBuffer(value)) {
+    return value.toString("utf8").trim();
+  }
+
+  return "";
 }
 
 /**
@@ -279,8 +294,8 @@ export function createEngramClient(options = {}) {
 
       return {
         args: [...args],
-        stdout: result.stdout?.trim() ?? "",
-        stderr: result.stderr?.trim() ?? "",
+        stdout: normalizeExecText(result.stdout),
+        stderr: normalizeExecText(result.stderr),
         binaryPath: config.binaryPath,
         dataDir: config.dataDir,
         cwd: config.cwd
@@ -290,16 +305,14 @@ export function createEngramClient(options = {}) {
       const stdout =
         typeof error === "object" &&
         error &&
-        "stdout" in error &&
-        typeof error.stdout === "string"
-          ? error.stdout.trim()
+        "stdout" in error
+          ? normalizeExecText(error.stdout)
           : "";
       const stderr =
         typeof error === "object" &&
         error &&
-        "stderr" in error &&
-        typeof error.stderr === "string"
-          ? error.stderr.trim()
+        "stderr" in error
+          ? normalizeExecText(error.stderr)
           : "";
 
       throw new Error(
