@@ -31,6 +31,9 @@ El repositorio esta en estado **operativo serio** para uso open source:
    - clasificacion degradada validada para `binary-missing`, `timeout` y `malformed-output`
    - retry/backoff deterministico en `teach` cubierto por tests
    - matriz de recuperacion documentada en `docs/ops-runbook.md`
+8. Sync de conocimiento de equipo:
+   - comando `sync-knowledge` estable para Notion
+   - automatizacion `sync:pr-learnings` para convertir PR mergeadas en notas durables de equipo (modo degradado si faltan secrets)
 
 ## Snapshot final de hoy
 

@@ -27,6 +27,7 @@
     "readme:example": "node src/cli.js readme --workspace . --focus \"learning context cli noise cancellation\" --output README.LEARN.md --format text",
     "ingest-security:example": "node src/cli.js ingest-security --input examples/prowler-findings.sample.json --status-filter non-pass --output test-output/security-chunks.json --format text",
     "security:pipeline:example": "node scripts/run-security-pipeline.js --input examples/prowler-findings.sample.json --output-dir test-output/security-pipeline --status-filter non-pass",
+    "sync:pr-learnings": "node scripts/sync-pr-learnings.js",
     "recall:example": "node src/cli.js recall --project learning-context-system --query \"teach recall\" --scope project --limit 5 --format text",
     "playground:select": "node src/cli.js select --input examples/auth-context.json --focus \"jwt middleware expired session validation\" --min-score 0.25 --format text",
     "playground:select:debug": "node src/cli.js select --input examples/auth-context.json --focus \"jwt middleware expired session validation\" --min-score 0.25 --debug --format text",

@@ -11,6 +11,7 @@ The project now exposes a local CLI that reads a JSON file of context chunks and
 - a memory recall flow backed by Engram
 - a durable memory write flow backed by Engram
 - a Notion sync flow for team knowledge notes (`sync-knowledge`)
+- a PR-merge automation path that converts merged PR metadata into a Notion learning note (`sync:pr-learnings`)
 
 ## Why a CLI matters
 
@@ -28,6 +29,7 @@ With the CLI, the workflow becomes:
 8. recall recent or historical memory from Engram
 9. save durable learnings back into Engram
 10. optionally append a structured knowledge note into Notion for team visibility
+11. optionally auto-sync merged PR learnings into Notion through GitHub Actions
 
 You can now skip manual JSON for many tasks by using `--workspace .`, which scans the repository and builds chunks from local files automatically.
 
@@ -416,6 +418,27 @@ Environment fallback:
 
 - `NOTION_TOKEN` or `NOTION_API_KEY`
 - `NOTION_PARENT_PAGE_ID`
+
+## Command 9: Build PR learnings payload and sync it to Notion
+
+```bash
+npm run sync:pr-learnings -- --event "$GITHUB_EVENT_PATH" --dry-run true
+```
+
+What happens internally:
+
+1. the script reads a GitHub pull-request event payload (`GITHUB_EVENT_PATH` or `--event`)
+2. it skips safely when the PR was closed but not merged
+3. it extracts durable highlights from title/body/diff metadata
+4. it calls `sync-knowledge` with a structured title/content/project/source/tags payload
+5. if Notion secrets are missing, it exits in degraded skip mode instead of failing the pipeline by default
+
+Useful options:
+
+- `--dry-run true` to print payload without writing to Notion
+- `--strict true` to fail when required Notion secrets are missing
+- `--title-prefix <text>` to customize generated note titles
+- in GitHub Actions, configure `NOTION_TOKEN` and `NOTION_PARENT_PAGE_ID` as repository secrets
 
 ## Automatic memory recall during teach
 

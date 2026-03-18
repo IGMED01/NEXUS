@@ -10,6 +10,8 @@ Este repo hace tres cosas juntas:
 2. **explica el codigo y el cambio**
 3. **recuerda decisiones duraderas**
 
+Ademas, ya puede sincronizar aprendizajes de PR mergeados hacia Notion como capa opcional de conocimiento de equipo.
+
 La idea central es simple:
 
 - no mandar todo al modelo
@@ -137,11 +139,13 @@ Si es hoy:
 - `docs/usage.md`: como usar la CLI
 - `learning-context.config.json`: defaults versionados del proyecto
 - `VERSIONING.md`: politica para alinear version de paquete, tags y releases
+- `src/ci/pr-learnings.js`: mapeador de metadata de PR mergeada hacia payload de aprendizaje durable
 - `src/context/noise-canceler.js`: selector de contexto
 - `src/learning/mentor-loop.js`: paquete pedagogico
 - `src/memory/engram-client.js` / `src/memory/engram-client.ts`: adaptador local a Engram (runtime JS + pista de build TS)
 - `src/observability/metrics-store.js`: almacenamiento local de metricas de comandos y reporte agregado
 - `src/security/prowler-ingest.js`: convertidor de findings JSON de Prowler a JSON de chunks compatible con la CLI
+- `scripts/sync-pr-learnings.js`: helper de CI para sincronizar aprendizajes de PR mergeadas hacia Notion usando `sync-knowledge`
 - `examples/typescript-backend/`: vertical real de TypeScript backend
 
 ## Prerrequisitos de instalacion
@@ -183,6 +187,7 @@ La demo mas fuerte hoy es el vertical de middleware TypeScript:
 npm run vertical:ts:teach
 npm run vertical:ts:seed-memory
 npm run vertical:ts:teach:memory
+npm run sync:pr-learnings -- --event "$GITHUB_EVENT_PATH" --dry-run true
 ```
 
 ## Configuracion oficial del proyecto
@@ -321,6 +326,7 @@ Para que el repo sea mas usable por terceros, GitHub ya tiene:
   - usage question
 - template de Pull Request con checklist de validacion
 - pipeline de CI con typecheck/build/tests/benchmarks y escaneo de secretos
+- workflow opcional `PR Learnings Sync` para exportar aprendizajes de PR mergeados a Notion (`sync:pr-learnings`)
 - workflow de CodeQL para analisis estatico de JavaScript/TypeScript
 - configuracion de Dependabot para npm y GitHub Actions
 - politica de seguridad en `SECURITY.md`
