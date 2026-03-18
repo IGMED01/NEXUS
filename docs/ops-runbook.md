@@ -22,6 +22,7 @@ Expected:
 npm.cmd run typecheck
 npm.cmd run build
 npm.cmd run build:smoke
+npm.cmd run release:check
 npm.cmd test
 npm.cmd run benchmark
 npm.cmd run benchmark:recall

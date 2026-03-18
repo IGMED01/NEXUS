@@ -73,6 +73,9 @@ jobs:
       - name: Smoke test dist CLI
         run: npm run build:smoke
 
+      - name: Run release discipline gate
+        run: npm run release:check
+
       - name: Run portable tests
         run: npm test
 

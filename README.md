@@ -206,6 +206,7 @@ npm run init:config
 npm test
 npm run typecheck
 npm run build
+npm run release:check
 npm run benchmark
 npm run benchmark:recall
 npm run benchmark:vertical
@@ -268,6 +269,7 @@ Useful commands:
 ```bash
 npm run build
 npm run build:smoke
+npm run release:check
 ```
 
 Conceptually:
