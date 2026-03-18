@@ -209,6 +209,8 @@ npm run benchmark:vertical
 npm run security:pipeline:example
 ```
 
+`security:pipeline:example` includes a default quality gate (`min-included-findings=1`, `min-selected-teach-chunks=1`, `min-priority=0.84`).
+
 ## Project configuration
 
 The CLI now auto-loads `learning-context.config.json` when present.

@@ -1459,12 +1459,70 @@ run("security pipeline script produces chunk and teach outputs", async () => {
     ]);
 
     assert.match(result.stdout, /Pipeline completed/);
+    assert.match(result.stdout, /quality gate: PASS/i);
 
     const chunks = JSON.parse(await readFile(chunksPath, "utf8"));
     const teach = JSON.parse(await readFile(teachPath, "utf8"));
     assert.equal(Array.isArray(chunks.chunks), true);
     assert.equal(chunks.chunks.length, 1);
     assert.equal(teach.command, "teach");
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("security pipeline quality gate fails when findings do not meet thresholds", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-security-pipeline-gate-"));
+  const findingsPath = path.join(tempRoot, "findings-pass-only.json");
+  const outputDir = path.join(tempRoot, "pipeline-output");
+
+  try {
+    await writeFile(
+      findingsPath,
+      JSON.stringify(
+        [
+          {
+            metadata: {
+              Provider: "aws",
+              CheckID: "low_control",
+              CheckTitle: "Low control",
+              Severity: {
+                value: "low"
+              },
+              Risk: "Hygiene issue only."
+            },
+            status: {
+              value: "PASS"
+            },
+            resource_uid: "res-low"
+          }
+        ],
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    await assert.rejects(
+      () =>
+        execFile(process.execPath, [
+          "scripts/run-security-pipeline.js",
+          "--input",
+          findingsPath,
+          "--output-dir",
+          outputDir,
+          "--status-filter",
+          "fail",
+          "--min-priority",
+          "0.9"
+        ]),
+      (error) => {
+        const parsed = /** @type {{ code?: number, stderr?: string }} */ (error);
+        assert.equal(parsed.code, 2);
+        assert.match(parsed.stderr ?? "", /Quality gate failed/i);
+        return true;
+      }
+    );
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }

@@ -169,6 +169,8 @@ npm run benchmark:vertical
 npm run security:pipeline:example
 ```
 
+`security:pipeline:example` incluye un gate de calidad por defecto (`min-included-findings=1`, `min-selected-teach-chunks=1`, `min-priority=0.84`).
+
 ## Demo principal hoy
 
 La demo mas fuerte hoy es el vertical de middleware TypeScript:

@@ -152,6 +152,17 @@ Outputs:
 - `security-chunks.json` (ingested chunks)
 - `security-teach.json` (teaching packet from those chunks)
 
+Default quality gate (enabled):
+
+- `--min-included-findings 1`
+- `--min-selected-teach-chunks 1`
+- `--min-priority 0.84` (roughly medium+ severity)
+
+Useful overrides:
+
+- disable gate: `--quality-gate false`
+- stricter gate: `--min-priority 0.9`
+
 ## Incremental typecheck vs build
 
 ```bash
