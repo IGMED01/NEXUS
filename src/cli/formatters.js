@@ -471,7 +471,21 @@ export function formatInitResultAsText(result) {
 }
 
 export function usageText() {
+  const commandCatalog = [
+    "  doctor   -> checks runtime, config, workspace, and Engram health",
+    "  init     -> creates learning-context.config.json with safe defaults",
+    "  select   -> ranks and selects high-value context chunks",
+    "  teach    -> builds a teaching packet (with automatic recall by default)",
+    "  readme   -> generates a learning README from selected context",
+    "  recall   -> reads project memory from Engram",
+    "  remember -> stores a durable memory note in Engram",
+    "  close    -> stores session-close learnings in Engram"
+  ];
+
   return [
+    "Commands:",
+    ...commandCatalog,
+    "",
     "Usage:",
     "  node src/cli.js doctor [--config <file>] [--format json|text]",
     "  node src/cli.js init [--config <file>] [--force true|false] [--format json|text]",

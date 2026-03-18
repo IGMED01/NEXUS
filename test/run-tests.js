@@ -727,12 +727,27 @@ run("project config parses security policy overrides", () => {
   assert.deepEqual(parsed.security.extraSensitivePathFragments, ["fixtures/private"]);
 });
 
-run("cli help documents doctor and init", async () => {
+run("cli help documents all supported commands including doctor and init", async () => {
   const result = await runCli(["help"]);
 
   assert.equal(result.exitCode, 0);
-  assert.match(result.stdout, /node src\/cli\.js doctor/);
-  assert.match(result.stdout, /node src\/cli\.js init/);
+  for (const command of [
+    "doctor",
+    "init",
+    "select",
+    "teach",
+    "readme",
+    "recall",
+    "remember",
+    "close"
+  ]) {
+    assert.match(result.stdout, new RegExp(`node src/cli\\.js ${command}`));
+  }
+  assert.match(result.stdout, /doctor\s+-> checks runtime, config, workspace, and Engram health/);
+  assert.match(
+    result.stdout,
+    /init\s+-> creates learning-context\.config\.json with safe defaults/
+  );
 });
 
 run("init creates config with a stable project id from package name", async () => {
