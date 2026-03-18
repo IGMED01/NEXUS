@@ -63,6 +63,14 @@ function toNotionUuid(value) {
 /**
  * @param {string} value
  */
+function stripUuidDashes(value) {
+  const compact = value.replace(/-/g, "").toLowerCase();
+  return /^[0-9a-f]{32}$/u.test(compact) ? compact : value;
+}
+
+/**
+ * @param {string} value
+ */
 function normalizeNotionPageId(value) {
   const compact = normalizeText(value);
 
@@ -92,6 +100,25 @@ function normalizeNotionPageId(value) {
   }
 
   return toNotionUuid(uuidMatch[1]);
+}
+
+/**
+ * @param {string} pageId
+ */
+function notionPageIdCandidates(pageId) {
+  const normalized = normalizeText(pageId);
+
+  if (!normalized) {
+    return [];
+  }
+
+  const candidates = [
+    normalized,
+    toNotionUuid(normalized),
+    stripUuidDashes(normalized)
+  ].filter(Boolean);
+
+  return candidates.filter((value, index, array) => array.indexOf(value) === index);
 }
 
 /**
@@ -244,6 +271,17 @@ async function postNotion(config, fetchImpl, path, payload) {
 }
 
 /**
+ * @param {unknown} error
+ */
+function isInvalidRequestUrlError(error) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return /invalid request url/iu.test(error.message);
+}
+
+/**
  * @param {{
  *   token?: string,
  *   parentPageId?: string,
@@ -298,10 +336,31 @@ export function createNotionSyncClient(options = {}) {
     );
     const paragraphs = splitParagraphs(content).map((paragraph) => paragraphBlock(paragraph));
     const children = [...header.blocks, ...paragraphs];
+    const pageIdCandidates = notionPageIdCandidates(config.parentPageId);
+    /** @type {unknown} */
+    let lastError = null;
+    let usedPageId = config.parentPageId;
 
-    await postNotion(config, fetchImpl, `/blocks/${encodeURIComponent(config.parentPageId)}/children`, {
-      children
-    });
+    for (const candidate of pageIdCandidates) {
+      try {
+        await postNotion(config, fetchImpl, `/blocks/${encodeURIComponent(candidate)}/children`, {
+          children
+        });
+        usedPageId = candidate;
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+
+        if (!isInvalidRequestUrlError(error)) {
+          throw error;
+        }
+      }
+    }
+
+    if (lastError) {
+      throw lastError;
+    }
 
     return {
       action: "append",
@@ -309,7 +368,7 @@ export function createNotionSyncClient(options = {}) {
       project: input.project || "",
       source: input.source || "lcs-cli",
       tags: header.tags,
-      parentPageId: config.parentPageId,
+      parentPageId: usedPageId,
       appendedBlocks: children.length,
       createdAt: timestamp
     };

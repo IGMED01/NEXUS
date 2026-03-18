@@ -2229,6 +2229,53 @@ run("notion client appends a knowledge entry through block children API", async 
   assert.match(calls[0].url, /\/blocks\/page-abc\/children$/);
 });
 
+run("notion client retries with alternate page-id format on invalid request url", async () => {
+  /** @type {Array<string>} */
+  const urls = [];
+  const client = createNotionSyncClient({
+    token: "token-123",
+    parentPageId: "327b5232556680d580bee12c22b4037d",
+    fetchImpl: async (url) => {
+      urls.push(url);
+
+      if (url.includes("/blocks/327b5232-5566-80d5-80be-e12c22b4037d/children")) {
+        return {
+          ok: false,
+          status: 400,
+          statusText: "Bad Request",
+          async text() {
+            return JSON.stringify({
+              object: "error",
+              message: "Invalid request URL."
+            });
+          }
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        async text() {
+          return JSON.stringify({ object: "list", results: [] });
+        }
+      };
+    }
+  });
+
+  const result = await client.appendKnowledgeEntry({
+    title: "PR learnings",
+    content: "Retry path should survive Notion URL format mismatch."
+  });
+
+  assert.equal(urls.length >= 2, true);
+  assert.equal(
+    urls.some((url) => url.includes("/blocks/327b5232556680d580bee12c22b4037d/children")),
+    true
+  );
+  assert.equal(result.action, "append");
+});
+
 run("notion client fails fast when required config is missing", async () => {
   const client = createNotionSyncClient({
     token: "",

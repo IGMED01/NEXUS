@@ -14,6 +14,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Added merged-PR knowledge sync automation (`scripts/sync-pr-learnings.js` + `.github/workflows/pr-learnings-sync.yml`) that transforms PR metadata into `sync-knowledge` notes with degraded skip mode when Notion secrets are missing.
 - Hardened Notion config normalization so `NOTION_PARENT_PAGE_ID` accepts full Notion page URLs (auto-extracts page id) to avoid invalid request URL failures.
 - Notion page-id normalization now converts 32-hex IDs into canonical UUID format for `/blocks/{page_id}/children` requests.
+- Notion sync now retries alternate page-id formats (UUID and compact 32-hex) when Notion returns `Invalid request URL`.
 
 ### Contracts
 - Added v1 compatibility fixtures/tests for all JSON CLI commands (`version`, `doctor`, `init`, `sync-knowledge`, `ingest-security`, `select`, `teach`, `readme`, `recall`, `remember`, `close`).

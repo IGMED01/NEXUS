@@ -419,7 +419,7 @@ Environment fallback:
 - `NOTION_TOKEN` or `NOTION_API_KEY`
 - `NOTION_PARENT_PAGE_ID`
 
-Tip: `NOTION_PARENT_PAGE_ID` can be raw 32-hex, UUID-with-dashes, or full Notion page URL (the CLI extracts and normalizes it).
+Tip: `NOTION_PARENT_PAGE_ID` can be raw 32-hex, UUID-with-dashes, or full Notion page URL (the CLI extracts, normalizes, and retries alternate ID formats if needed).
 
 ## Command 9: Build PR learnings payload and sync it to Notion
 
