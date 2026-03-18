@@ -2168,7 +2168,16 @@ run("notion config resolver extracts page id from full Notion URL", () => {
       "https://www.notion.so/Workspace/PR-Learnings-1234567890abcdef1234567890abcdef?pvs=4"
   });
 
-  assert.equal(config.parentPageId, "1234567890abcdef1234567890abcdef");
+  assert.equal(config.parentPageId, "12345678-90ab-cdef-1234-567890abcdef");
+});
+
+run("notion config resolver converts raw 32-char ids to UUID format", () => {
+  const config = resolveNotionConfig({
+    token: "test-token",
+    parentPageId: "327b5232556680d580bee12c22b4037d"
+  });
+
+  assert.equal(config.parentPageId, "327b5232-5566-80d5-80be-e12c22b4037d");
 });
 
 run("knowledge block builder includes metadata summary and tags", () => {
