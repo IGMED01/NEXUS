@@ -16,6 +16,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Notion page-id normalization now converts 32-hex IDs into canonical UUID format for `/blocks/{page_id}/children` requests.
 - Notion sync now retries alternate page-id formats (UUID and compact 32-hex) when Notion returns `Invalid request URL`.
 - Fixed Notion append transport to use `PATCH /blocks/{page_id}/children` (was `POST`), matching the official Notion API contract.
+- Notion sync now renders markdown-like note content as native Notion blocks (`heading_*`, `bulleted_list_item`, `numbered_list_item`, `paragraph`) so PR learnings are readable without raw markdown markers.
 
 ### Contracts
 - Added v1 compatibility fixtures/tests for all JSON CLI commands (`version`, `doctor`, `init`, `sync-knowledge`, `ingest-security`, `select`, `teach`, `readme`, `recall`, `remember`, `close`).

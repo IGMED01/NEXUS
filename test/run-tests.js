@@ -2230,6 +2230,58 @@ run("notion client appends a knowledge entry through block children API", async 
   assert.equal(calls[0].init?.method, "PATCH");
 });
 
+run("notion client renders markdown headings and lists as native Notion blocks", async () => {
+  /** @type {Array<{ type?: string }>} */
+  let capturedChildren = [];
+  const client = createNotionSyncClient({
+    token: "token-123",
+    parentPageId: "page-abc",
+    fetchImpl: async (_url, init) => {
+      const payload = JSON.parse(String(init?.body || "{}"));
+      capturedChildren = Array.isArray(payload.children) ? payload.children : [];
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        async text() {
+          return JSON.stringify({ object: "list", results: [] });
+        }
+      };
+    }
+  });
+
+  await client.appendKnowledgeEntry({
+    title: "PR learnings",
+    content: [
+      "## Pull Request Learnings",
+      "",
+      "- Repository: IGMED01/learning-context-system",
+      "- URL: https://github.com/IGMED01/learning-context-system/pull/45",
+      "",
+      "### Why this change",
+      "1. Switch append transport to PATCH.",
+      "2. Retry alternate page-id formats.",
+      "",
+      "Body excerpt line one.",
+      "Body excerpt line two."
+    ].join("\n")
+  });
+
+  const blockTypes = capturedChildren.map((block) => block.type || "");
+  assert.deepEqual(blockTypes.slice(0, 9), [
+    "heading_3",
+    "paragraph",
+    "heading_2",
+    "bulleted_list_item",
+    "bulleted_list_item",
+    "heading_3",
+    "numbered_list_item",
+    "numbered_list_item",
+    "paragraph"
+  ]);
+  assert.doesNotMatch(JSON.stringify(capturedChildren), /## Pull Request Learnings/);
+});
+
 run("notion client retries with alternate page-id format on invalid request url", async () => {
   /** @type {Array<{ url: string, method: string }>} */
   const calls = [];

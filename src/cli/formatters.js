@@ -608,7 +608,7 @@ export function usageText() {
     "  --version and -v also print the CLI version.",
     "  doctor validates Node.js, Git, config, workspace, and Engram availability.",
     "  init creates learning-context.config.json with stable defaults for this repo.",
-    "  sync-knowledge appends a heading + metadata + content paragraphs into your configured Notion page.",
+    "  sync-knowledge appends heading + metadata + markdown content blocks (headings/lists/paragraphs) into your Notion page.",
     "  sync-knowledge can read NOTION_TOKEN / NOTION_API_KEY and NOTION_PARENT_PAGE_ID from env if flags are omitted.",
     "  ingest-security converts Prowler report JSON into chunk JSON compatible with select/teach/readme input.",
     "  --workspace scans the local repository and builds chunks automatically.",

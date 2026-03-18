@@ -143,6 +143,45 @@ export function resolveNotionConfig(input = {}) {
  * @param {string} value
  * @returns {string[]}
  */
+function splitLongText(value) {
+  const compact = String(value || "");
+
+  if (!compact.length) {
+    return [];
+  }
+
+  if (compact.length <= MAX_PARAGRAPH_LENGTH) {
+    return [compact];
+  }
+
+  const chunks = [];
+  let current = compact;
+
+  while (current.length > MAX_PARAGRAPH_LENGTH) {
+    chunks.push(current.slice(0, MAX_PARAGRAPH_LENGTH));
+    current = current.slice(MAX_PARAGRAPH_LENGTH);
+  }
+
+  if (current.length) {
+    chunks.push(current);
+  }
+
+  return chunks;
+}
+
+/**
+ * @param {unknown} value
+ */
+function normalizeInlineText(value) {
+  return String(value || "")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+/**
+ * @param {string} value
+ * @returns {string[]}
+ */
 function splitParagraphs(value) {
   const compact = String(value).replace(/\r\n/g, "\n").trim();
 
@@ -152,41 +191,61 @@ function splitParagraphs(value) {
 
   return compact
     .split(/\n{2,}/u)
-    .map((part) => part.replace(/\s+/gu, " ").trim())
+    .map((part) => normalizeInlineText(part))
     .filter(Boolean)
-    .flatMap((part) => {
-      if (part.length <= MAX_PARAGRAPH_LENGTH) {
-        return [part];
-      }
-
-      const chunks = [];
-      let current = part;
-
-      while (current.length > MAX_PARAGRAPH_LENGTH) {
-        chunks.push(current.slice(0, MAX_PARAGRAPH_LENGTH));
-        current = current.slice(MAX_PARAGRAPH_LENGTH);
-      }
-
-      if (current.length) {
-        chunks.push(current);
-      }
-
-      return chunks;
-    });
+    .flatMap((part) => splitLongText(part));
 }
 
 /**
  * @param {string} content
  */
 function asRichText(content) {
-  return [
-    {
-      type: "text",
-      text: {
-        content
-      }
+  return splitLongText(content).map((part) => ({
+    type: "text",
+    text: {
+      content: part
     }
-  ];
+  }));
+}
+
+/**
+ * @param {"heading_1" | "heading_2" | "heading_3"} type
+ * @param {string} content
+ */
+function headingBlock(type, content) {
+  return {
+    object: "block",
+    type,
+    [type]: {
+      rich_text: asRichText(content)
+    }
+  };
+}
+
+/**
+ * @param {string} content
+ */
+function bulletedListBlock(content) {
+  return {
+    object: "block",
+    type: "bulleted_list_item",
+    bulleted_list_item: {
+      rich_text: asRichText(content)
+    }
+  };
+}
+
+/**
+ * @param {string} content
+ */
+function numberedListBlock(content) {
+  return {
+    object: "block",
+    type: "numbered_list_item",
+    numbered_list_item: {
+      rich_text: asRichText(content)
+    }
+  };
 }
 
 /**
@@ -200,6 +259,98 @@ function paragraphBlock(content) {
       rich_text: asRichText(content)
     }
   };
+}
+
+/**
+ * @param {string} content
+ */
+function contentBlocksFromMarkdown(content) {
+  const compact = String(content).replace(/\r\n/g, "\n").trim();
+
+  if (!compact) {
+    return [];
+  }
+
+  const lines = compact.split("\n");
+  /** @type {string[]} */
+  const paragraphBuffer = [];
+  /** @type {Array<Record<string, unknown>>} */
+  const blocks = [];
+
+  const flushParagraphBuffer = () => {
+    if (!paragraphBuffer.length) {
+      return;
+    }
+
+    const merged = normalizeInlineText(paragraphBuffer.join(" "));
+    paragraphBuffer.length = 0;
+
+    if (!merged) {
+      return;
+    }
+
+    blocks.push(...splitLongText(merged).map((paragraph) => paragraphBlock(paragraph)));
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      flushParagraphBuffer();
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)$/u);
+
+    if (headingMatch) {
+      flushParagraphBuffer();
+      const depth = headingMatch[1].length;
+      const headingText = normalizeInlineText(headingMatch[2]);
+
+      if (!headingText) {
+        continue;
+      }
+
+      const headingType =
+        depth === 1 ? "heading_1" : depth === 2 ? "heading_2" : "heading_3";
+      blocks.push(headingBlock(headingType, headingText));
+      continue;
+    }
+
+    const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/u);
+
+    if (bulletMatch) {
+      flushParagraphBuffer();
+      const bulletText = normalizeInlineText(bulletMatch[1]);
+
+      if (!bulletText) {
+        continue;
+      }
+
+      blocks.push(bulletedListBlock(bulletText));
+      continue;
+    }
+
+    const numberedMatch = trimmed.match(/^\d+\.\s+(.+)$/u);
+
+    if (numberedMatch) {
+      flushParagraphBuffer();
+      const listItemText = normalizeInlineText(numberedMatch[1]);
+
+      if (!listItemText) {
+        continue;
+      }
+
+      blocks.push(numberedListBlock(listItemText));
+      continue;
+    }
+
+    paragraphBuffer.push(trimmed);
+  }
+
+  flushParagraphBuffer();
+
+  return blocks.length ? blocks : splitParagraphs(compact).map((paragraph) => paragraphBlock(paragraph));
 }
 
 /**
@@ -335,8 +486,8 @@ export function createNotionSyncClient(options = {}) {
       },
       timestamp
     );
-    const paragraphs = splitParagraphs(content).map((paragraph) => paragraphBlock(paragraph));
-    const children = [...header.blocks, ...paragraphs];
+    const contentBlocks = contentBlocksFromMarkdown(content);
+    const children = [...header.blocks, ...contentBlocks];
     const pageIdCandidates = notionPageIdCandidates(config.parentPageId);
     /** @type {unknown} */
     let lastError = null;

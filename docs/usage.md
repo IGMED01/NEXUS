@@ -410,7 +410,7 @@ node src/cli.js sync-knowledge --title "PR #39 learnings" --content "Migrated En
 What happens internally:
 
 1. the CLI validates title/content and reads Notion auth/page settings (flags or env)
-2. it builds a structured block payload (heading + metadata + paragraphs)
+2. it builds a structured block payload (heading + metadata + markdown-native content blocks: headings, lists, paragraphs)
 3. it appends the blocks to your target Notion page
 4. it returns append metadata (`parentPageId`, `appendedBlocks`, `createdAt`)
 
