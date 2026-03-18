@@ -32,6 +32,174 @@ function run(name, fn) {
   tests.push({ name, fn });
 }
 
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * @param {unknown} root
+ * @param {string} pathExpression
+ */
+function getPathValue(root, pathExpression) {
+  const parts = pathExpression.split(".");
+  /** @type {unknown} */
+  let current = root;
+
+  for (const part of parts) {
+    if (Array.isArray(current)) {
+      const index = Number(part);
+
+      if (!Number.isInteger(index) || index < 0 || index >= current.length) {
+        return {
+          exists: false,
+          value: undefined
+        };
+      }
+
+      current = current[index];
+      continue;
+    }
+
+    if (!isRecord(current) || !(part in current)) {
+      return {
+        exists: false,
+        value: undefined
+      };
+    }
+
+    current = current[part];
+  }
+
+  return {
+    exists: true,
+    value: current
+  };
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} expectedType
+ */
+function assertValueType(value, expectedType) {
+  if (expectedType === "string") {
+    assert.equal(typeof value, "string");
+    return;
+  }
+
+  if (expectedType === "number") {
+    assert.equal(typeof value, "number");
+    return;
+  }
+
+  if (expectedType === "boolean") {
+    assert.equal(typeof value, "boolean");
+    return;
+  }
+
+  if (expectedType === "array") {
+    assert.equal(Array.isArray(value), true);
+    return;
+  }
+
+  if (expectedType === "object") {
+    assert.equal(isRecord(value), true);
+    return;
+  }
+
+  if (expectedType === "object_or_null") {
+    assert.equal(value === null || isRecord(value), true);
+    return;
+  }
+
+  throw new Error(`Unsupported expected type '${expectedType}'.`);
+}
+
+/**
+ * @param {"doctor" | "teach"} name
+ */
+async function loadContractFixture(name) {
+  const fixturePath = path.join(
+    process.cwd(),
+    "test",
+    "fixtures",
+    "contracts",
+    "v1",
+    `${name}.json`
+  );
+  const content = await readFile(fixturePath, "utf8");
+  return JSON.parse(content);
+}
+
+/**
+ * @param {unknown} contract
+ * @param {{
+ *   requiredPaths?: string[],
+ *   pathTypes?: Record<string, string>,
+ *   arrayItemRequiredPaths?: Record<string, string[]>
+ * }} fixture
+ * @param {string} label
+ */
+function assertContractCompatibility(contract, fixture, label) {
+  for (const requiredPath of fixture.requiredPaths ?? []) {
+    const resolved = getPathValue(contract, requiredPath);
+    assert.equal(
+      resolved.exists,
+      true,
+      `${label}: required path '${requiredPath}' is missing`
+    );
+  }
+
+  for (const [pathExpression, expectedType] of Object.entries(fixture.pathTypes ?? {})) {
+    const resolved = getPathValue(contract, pathExpression);
+
+    assert.equal(
+      resolved.exists,
+      true,
+      `${label}: typed path '${pathExpression}' is missing`
+    );
+    assertValueType(resolved.value, expectedType);
+  }
+
+  for (const [pathExpression, requiredKeys] of Object.entries(fixture.arrayItemRequiredPaths ?? {})) {
+    const resolved = getPathValue(contract, pathExpression);
+
+    assert.equal(
+      resolved.exists,
+      true,
+      `${label}: array path '${pathExpression}' is missing`
+    );
+    assert.equal(Array.isArray(resolved.value), true, `${label}: '${pathExpression}' must be an array`);
+
+    if (!Array.isArray(resolved.value)) {
+      continue;
+    }
+
+    for (const [index, item] of resolved.value.entries()) {
+      assert.equal(
+        isRecord(item),
+        true,
+        `${label}: '${pathExpression}[${index}]' must be an object`
+      );
+
+      if (!isRecord(item)) {
+        continue;
+      }
+
+      for (const key of requiredKeys) {
+        assert.equal(
+          key in item,
+          true,
+          `${label}: '${pathExpression}[${index}].${key}' is missing`
+        );
+      }
+    }
+  }
+}
+
 run("prioritizes relevant code and filters noisy logs", () => {
   const chunks = [
     {
@@ -875,8 +1043,11 @@ run("doctor warns when security protections are relaxed", async () => {
 run("cli doctor emits runtime metadata in json mode", async () => {
   const result = await runCli(["doctor", "--format", "json"]);
   const parsed = JSON.parse(result.stdout);
+  const fixture = await loadContractFixture("doctor");
 
   assert.equal(result.exitCode, 0);
+  assertContractCompatibility(parsed, fixture, "doctor.v1");
+  assert.equal(parsed.schemaVersion, "1.0.0");
   assert.equal(parsed.command, "doctor");
   assert.equal(typeof parsed.meta.durationMs, "number");
   assert.equal(parsed.meta.durationMs >= 0, true);
@@ -1782,6 +1953,9 @@ run("cli teach emits a stable JSON contract and marks degraded recall", async ()
   );
 
   const parsed = JSON.parse(result.stdout);
+  const fixture = await loadContractFixture("teach");
+  assert.equal(result.exitCode, 0);
+  assertContractCompatibility(parsed, fixture, "teach.v1");
   assert.equal(parsed.schemaVersion, "1.0.0");
   assert.equal(parsed.command, "teach");
   assert.equal(parsed.status, "ok");

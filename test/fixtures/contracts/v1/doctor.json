@@ -1,0 +1,49 @@
+{
+  "requiredPaths": [
+    "schemaVersion",
+    "command",
+    "status",
+    "degraded",
+    "warnings",
+    "config",
+    "config.found",
+    "config.path",
+    "meta",
+    "meta.generatedAt",
+    "meta.cwd",
+    "meta.durationMs",
+    "meta.debug",
+    "meta.scanStats",
+    "cwd",
+    "summary",
+    "summary.pass",
+    "summary.warn",
+    "summary.fail",
+    "checks"
+  ],
+  "pathTypes": {
+    "schemaVersion": "string",
+    "command": "string",
+    "status": "string",
+    "degraded": "boolean",
+    "warnings": "array",
+    "config": "object",
+    "config.found": "boolean",
+    "config.path": "string",
+    "meta": "object",
+    "meta.generatedAt": "string",
+    "meta.cwd": "string",
+    "meta.durationMs": "number",
+    "meta.debug": "boolean",
+    "meta.scanStats": "object_or_null",
+    "cwd": "string",
+    "summary": "object",
+    "summary.pass": "number",
+    "summary.warn": "number",
+    "summary.fail": "number",
+    "checks": "array"
+  },
+  "arrayItemRequiredPaths": {
+    "checks": ["id", "label", "status", "detail"]
+  }
+}
