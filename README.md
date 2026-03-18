@@ -20,6 +20,7 @@ It is already usable as:
 - a context-selection prototype
 - a teaching-oriented coding assistant scaffold
 - a durable-memory playground backed by Engram
+- an optional PR-to-Notion learnings sync flow after merges
 
 It is **not** yet a mature framework.
 
@@ -176,11 +177,13 @@ These projects are credited as architectural inspiration. They are not listed as
 - `ROADMAP.md`: next priorities
 - `VERSIONING.md`: package/tag/release alignment policy
 - `src/analysis/readme-generator.js`: generated learning README builder
+- `src/ci/pr-learnings.js`: merged-PR metadata to durable learning-note payload mapper
 - `src/context/noise-canceler.js`: prototype signal-over-noise selector
 - `src/learning/mentor-loop.js`: learning packet builder
 - `src/memory/engram-client.js` / `src/memory/engram-client.ts`: local Engram adapter for recall and durable memory writes (JS runtime + TS build track)
 - `src/observability/metrics-store.js`: local command metrics store and aggregated observability report
 - `src/security/prowler-ingest.js`: converter from Prowler findings JSON to LCS-compatible chunk JSON
+- `scripts/sync-pr-learnings.js`: CI helper that syncs merged PR learnings to Notion through `sync-knowledge`
 - `src/cli.js`: local CLI entrypoint
 - `skills/`: language-specific and workflow-specific teaching skills
 
@@ -351,6 +354,7 @@ To make the repository usable by others, GitHub surfaces are now explicitly wire
   - usage question
 - Pull request template with mandatory validation checklist
 - CI workflow with typecheck/build/tests/benchmarks plus secret scan gate
+- PR Learnings Sync workflow that can export merged PR learnings to Notion (`sync:pr-learnings`) when secrets are configured
 - CodeQL workflow for JavaScript/TypeScript static analysis
 - Dependabot configuration for npm and GitHub Actions updates
 - Security policy in [`SECURITY.md`](SECURITY.md)
@@ -383,6 +387,7 @@ node src/cli.js recall --project learning-context-system --query "auth middlewar
 node src/cli.js remember --title "JWT order" --content "Validation runs before route handlers." --project learning-context-system --type decision --topic architecture/auth-order --format text
 node src/cli.js close --summary "Integrated recall and remember commands." --learned "Context retrieval and durable memory are different layers." --next "Connect recall to the teaching flow." --project learning-context-system --format text
 node src/cli.js sync-knowledge --title "PR #39 learnings" --content "Migrated Engram adapter to TS build track." --project learning-context-system --source "pr-39" --tags "typescript,memory,engram" --notion-page-id "<page-id>" --notion-token "<token>" --format text
+npm run sync:pr-learnings -- --event "$GITHUB_EVENT_PATH" --dry-run true
 ```
 
 ## Stable JSON contract

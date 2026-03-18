@@ -18,6 +18,7 @@ Turn the repository from "interesting prototype" into "credible open-source tool
 - CI is green
 - README exists in English and Spanish
 - contributors, credits, and release baseline are in place
+- merged PR learnings can be exported to Notion (optional secrets) for team-level visibility
 
 ## Milestones
 

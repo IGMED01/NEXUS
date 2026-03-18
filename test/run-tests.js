@@ -38,6 +38,10 @@ import {
   prowlerFindingsToChunkFile
 } from "../src/security/prowler-ingest.js";
 import {
+  buildPrLearningsSyncPayload,
+  extractPrBodyHighlights
+} from "../src/ci/pr-learnings.js";
+import {
   SECURITY_PIPELINE_SUMMARY_MARKER,
   buildSecurityPipelineSummaryComment,
   parseSecuritySummaryMetric
@@ -1795,6 +1799,84 @@ run("security PR summary delta matches golden fixture", async () => {
   const expected = await readFile(fixturePath, "utf8");
 
   assert.equal(normalizeNewlines(current.body), normalizeNewlines(expected));
+});
+
+run("pr learnings builder skips closed pull requests that were not merged", () => {
+  const built = buildPrLearningsSyncPayload({
+    pull_request: {
+      number: 41,
+      merged: false
+    },
+    repository: {
+      full_name: "IGMED01/learning-context-system"
+    }
+  });
+
+  assert.equal(built.skipped, true);
+  assert.match(built.reason, /not merged/i);
+});
+
+run("pr learnings builder creates sync payload from merged PR metadata", () => {
+  const built = buildPrLearningsSyncPayload({
+    pull_request: {
+      number: 42,
+      title: "feat: quality gate for security pipeline",
+      body: [
+        "- Added quality gate for included findings.",
+        "- Added selected teach chunks threshold.",
+        "- Added max priority threshold.",
+        "",
+        "This PR hardens the CI surface."
+      ].join("\n"),
+      html_url: "https://github.com/IGMED01/learning-context-system/pull/42",
+      merged: true,
+      merged_at: "2026-03-18T22:10:00.000Z",
+      additions: 120,
+      deletions: 17,
+      changed_files: 6,
+      commits: 2,
+      merge_commit_sha: "abc123",
+      base: {
+        ref: "main"
+      },
+      head: {
+        ref: "codex/security-quality-gate"
+      },
+      user: {
+        login: "IGMED01"
+      },
+      labels: [{ name: "security" }, { name: "ci" }]
+    },
+    repository: {
+      full_name: "IGMED01/learning-context-system"
+    }
+  });
+
+  assert.equal(built.skipped, false);
+
+  if (built.skipped) {
+    throw new Error("Expected non-skipped PR learnings payload.");
+  }
+
+  assert.match(built.entry.title, /PR Learnings #42/i);
+  assert.match(built.entry.content, /Repository: IGMED01\/learning-context-system/);
+  assert.match(built.entry.content, /Extracted highlights/);
+  assert.match(built.entry.content, /Added quality gate for included findings/i);
+  assert.equal(built.entry.source, "github-pr-42");
+  assert.equal(built.entry.project, "IGMED01/learning-context-system");
+  assert.equal(built.entry.tags.includes("pr-learnings"), true);
+  assert.equal(built.entry.tags.includes("security"), true);
+  assert.equal(built.entry.tags.includes("main"), true);
+  assert.equal(built.entry.tags.includes("merged"), true);
+});
+
+run("pr body highlights fall back to compact excerpt when body has no bullets", () => {
+  const highlights = extractPrBodyHighlights(
+    "This change aligns release checks and improves CI reliability with explicit contracts."
+  );
+
+  assert.equal(highlights.length, 1);
+  assert.match(highlights[0], /aligns release checks/i);
 });
 
 run("release discipline evaluator passes for repository policy files", async () => {
