@@ -268,6 +268,7 @@ Migraciones reales actuales a `.ts` dentro de `src/`:
 - `src/cli/arg-parser.ts`
 - `src/contracts/cli-contracts.ts`
 - `src/cli/teach-command.ts`
+- `src/memory/recall-queries.ts`
 
 Nota de compatibilidad:
 

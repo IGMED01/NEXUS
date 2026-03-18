@@ -298,6 +298,7 @@ Current real `.ts` migrations in `src/`:
 - `src/cli/arg-parser.ts`
 - `src/contracts/cli-contracts.ts`
 - `src/cli/teach-command.ts`
+- `src/memory/recall-queries.ts`
 
 Compatibility note:
 

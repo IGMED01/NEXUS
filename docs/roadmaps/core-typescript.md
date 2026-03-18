@@ -25,7 +25,7 @@ Move the core from "disciplined JavaScript" to "strictly typed and safer to refa
   - `src/cli/formatters.js`
   - `src/context/noise-canceler.js`
   - `src/learning/mentor-loop.js`
-  - `src/memory/recall-queries.js`
+  - `src/memory/recall-queries.ts`
   - `src/memory/engram-client.js`
   - `src/memory/teach-recall.js`
 - core runtime still lives mostly in `.js`
@@ -60,6 +60,7 @@ Move the core from "disciplined JavaScript" to "strictly typed and safer to refa
 - [x] migrate scanner/ops modules to `.ts` track (`src/io/workspace-chunks.ts`, `src/system/project-ops.ts`) while preserving Node 20/22 source runtime compatibility
 - [x] migrate CLI edge contracts/parsing to `.ts` track (`src/cli/arg-parser.ts`, `src/contracts/cli-contracts.ts`) for safer tool-facing interfaces
 - [x] extract and migrate teach orchestration handler to `.ts` track (`src/cli/teach-command.ts`) to reduce `app.js` complexity
+- [x] migrate recall query heuristics to `.ts` track (`src/memory/recall-queries.ts`) to keep memory strategy rules refactor-safe
 - [x] add build output strategy for publishable CLI use
 - preserve current command behavior and benchmark outputs
 

@@ -22,6 +22,7 @@
     "src/io/config-file.js",
     "src/io/text-file.js",
     "src/io/workspace-chunks.js",
+    "src/memory/recall-queries.js",
     "src/security/secret-redaction.js",
     "src/system/project-ops.js"
   ]

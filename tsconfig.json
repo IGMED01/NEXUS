@@ -31,7 +31,7 @@
     "src/learning/mentor-loop.js",
     "src/memory/engram-client.js",
     "src/memory/engram-auto-orchestrator.js",
-    "src/memory/recall-queries.js",
+    "src/memory/recall-queries.ts",
     "src/memory/teach-recall.js",
     "src/security/secret-redaction.ts",
     "src/system/project-ops.ts",
