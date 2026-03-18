@@ -125,7 +125,9 @@ import {
  *   dataDir?: string,
  *   degraded?: boolean,
  *   warning?: string,
- *   error?: string
+ *   error?: string,
+ *   failureKind?: string,
+ *   fixHint?: string
  * }} RecallCommandResult
  */
 
@@ -394,7 +396,25 @@ function applyConfigDefaults(command, rawOptions, loadedConfig) {
  */
 function buildDegradedRecallResult(engram, input, error) {
   const message = error instanceof Error ? error.message : String(error);
-  const warning = "Engram unavailable; returning an empty recall result in degraded mode.";
+  const normalized = message.toLowerCase();
+  const failureKind = /enoent|cannot find|not recognized as an internal or external command/i.test(
+    normalized
+  )
+    ? "binary-missing"
+    : /etimedout|timed out|timeout|killed|sigterm/i.test(normalized)
+      ? "timeout"
+      : /malformed|parse|unexpected output|invalid format/i.test(normalized)
+        ? "malformed-output"
+        : "unknown";
+  const fixHint =
+    failureKind === "binary-missing"
+      ? "Verify --engram-bin path or learning-context.config.json -> engram.binaryPath."
+      : failureKind === "timeout"
+        ? "Retry recall, reduce query scope, and verify Engram runtime health."
+        : failureKind === "malformed-output"
+          ? "Update Engram and validate output format with doctor + recall --debug."
+          : "Run doctor and verify Engram binary and data directory settings.";
+  const warning = `Engram unavailable; returning an empty recall result in degraded mode (${failureKind}).`;
 
   return {
     mode: input.query ? "search" : "context",
@@ -408,7 +428,9 @@ function buildDegradedRecallResult(engram, input, error) {
     dataDir: engram.config?.dataDir ?? "",
     degraded: true,
     warning,
-    error: message
+    error: message,
+    failureKind,
+    fixHint
   };
 }
 

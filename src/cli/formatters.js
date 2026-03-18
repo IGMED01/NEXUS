@@ -364,7 +364,9 @@ export function formatLearningPacketAsText(packet, options = {}) {
  *   dataDir?: string,
  *   degraded?: boolean,
  *   warning?: string,
- *   error?: string
+ *   error?: string,
+ *   failureKind?: string,
+ *   fixHint?: string
  * }} result
  * @param {{ debug?: boolean }} [options]
  */
@@ -392,6 +394,14 @@ export function formatMemoryRecallAsText(result, options = {}) {
 
   if (result.error) {
     lines.push(`Error: ${result.error}`);
+  }
+
+  if (result.failureKind) {
+    lines.push(`Failure kind: ${result.failureKind}`);
+  }
+
+  if (result.fixHint) {
+    lines.push(`Fix hint: ${result.fixHint}`);
   }
 
   if (debug) {

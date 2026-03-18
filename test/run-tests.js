@@ -200,6 +200,19 @@ function assertContractCompatibility(contract, fixture, label) {
   }
 }
 
+/**
+ * @param {string} message
+ * @param {{
+ *   code?: string,
+ *   stdout?: string,
+ *   stderr?: string
+ * }} [extra]
+ */
+function createExecError(message, extra = {}) {
+  const error = new Error(message);
+  return Object.assign(error, extra);
+}
+
 run("prioritizes relevant code and filters noisy logs", () => {
   const chunks = [
     {
@@ -1194,6 +1207,50 @@ run("engram client builds search and save commands with workspace-backed env", a
   assert.equal(calls[2].args[0], "save");
 });
 
+run("engram client wraps missing-binary errors with command context", async () => {
+  const client = createEngramClient({
+    cwd: "C:/repo",
+    binaryPath: "C:/repo/tools/engram/missing-engram.exe",
+    dataDir: "C:/repo/.engram",
+    async exec() {
+      throw createExecError("spawn ENOENT", {
+        code: "ENOENT",
+        stderr: "The system cannot find the file specified."
+      });
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      client.searchMemories("auth middleware", {
+        project: "learning-context-system"
+      }),
+    /Engram command failed: .*missing-engram\.exe search auth middleware/
+  );
+});
+
+run("engram client wraps timeout errors and keeps stderr detail", async () => {
+  const client = createEngramClient({
+    cwd: "C:/repo",
+    binaryPath: "C:/repo/tools/engram/engram.exe",
+    dataDir: "C:/repo/.engram",
+    async exec() {
+      throw createExecError("process timeout", {
+        code: "ETIMEDOUT",
+        stderr: "query timed out after 10s"
+      });
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      client.searchMemories("auth middleware", {
+        project: "learning-context-system"
+      }),
+    /query timed out after 10s/
+  );
+});
+
 run("close summary builder captures summary, learning, and next step", () => {
   const content = buildCloseSummaryContent({
     summary: "Integrated Engram into the CLI",
@@ -1313,6 +1370,46 @@ run("teach recall strategy reports recoverable provider errors without throwing"
   assert.equal(result.memoryRecall.status, "failed");
   assert.match(result.memoryRecall.error, /temporary Engram failure/);
   assert.equal(result.chunks.length, 0);
+});
+
+run("teach recall treats malformed provider output as empty recall instead of crash", async () => {
+  const result = await resolveTeachRecall({
+    task: "Integrate Engram CLI",
+    objective: "Teach memory flow",
+    focus: "engram cli memory",
+    changedFiles: ["src/memory/teach-recall.js"],
+    project: "learning-context-system",
+    limit: 2,
+    baseChunks: [],
+    async searchMemories() {
+      return {
+        stdout: "Found memory entries but output format is malformed"
+      };
+    }
+  });
+
+  assert.equal(result.memoryRecall.status, "empty");
+  assert.equal(result.memoryRecall.recoveredChunks, 0);
+  assert.equal(result.memoryRecall.degraded, false);
+  assert.equal(result.chunks.length, 0);
+});
+
+run("teach recall strict mode throws provider errors", async () => {
+  await assert.rejects(
+    () =>
+      resolveTeachRecall({
+        task: "Improve auth middleware",
+        objective: "Teach validation order",
+        focus: "auth middleware validation",
+        changedFiles: ["src/auth/middleware.ts"],
+        project: "learning-context-system",
+        strictRecall: true,
+        async searchMemories() {
+          throw new Error("ETIMEDOUT while querying Engram");
+        }
+      }),
+    /ETIMEDOUT/
+  );
 });
 
 run("cli recall delegates to Engram search when a query is provided", async () => {
@@ -1495,6 +1592,67 @@ run("cli recall returns a degraded contract when Engram is unavailable", async (
   assert.match(parsed.warnings[0], /degraded mode/i);
   assert.equal(parsed.stdout, "");
   assert.match(parsed.error, /engram offline/);
+});
+
+run("cli recall degraded mode classifies timeout failures", async () => {
+  const fakeClient = {
+    config: {
+      dataDir: ".engram"
+    },
+    async recallContext() {
+      throw new Error("not used");
+    },
+    async searchMemories() {
+      throw new Error("ETIMEDOUT: query timed out after 8s");
+    },
+    async saveMemory() {
+      throw new Error("not used");
+    },
+    async closeSession() {
+      throw new Error("not used");
+    }
+  };
+
+  const result = await runCli(
+    [
+      "recall",
+      "--query",
+      "auth middleware",
+      "--degraded-recall",
+      "true",
+      "--format",
+      "json"
+    ],
+    {
+      engramClient: fakeClient
+    }
+  );
+
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(result.exitCode, 0);
+  assert.equal(parsed.degraded, true);
+  assert.equal(parsed.failureKind, "timeout");
+  assert.match(parsed.fixHint, /retry/i);
+});
+
+run("cli recall degraded mode classifies missing binary in real subprocess path", async () => {
+  const result = await runCli([
+    "recall",
+    "--query",
+    "auth middleware",
+    "--engram-bin",
+    "tools/engram/missing-engram.exe",
+    "--degraded-recall",
+    "true",
+    "--format",
+    "json"
+  ]);
+
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(result.exitCode, 0);
+  assert.equal(parsed.degraded, true);
+  assert.equal(parsed.failureKind, "binary-missing");
+  assert.match(parsed.fixHint, /--engram-bin/);
 });
 
 run("cli recall debug shows active filter state", async () => {
