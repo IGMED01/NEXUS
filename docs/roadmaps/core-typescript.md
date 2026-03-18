@@ -27,8 +27,8 @@ Move the core from "disciplined JavaScript" to "strictly typed and safer to refa
   - `src/context/noise-canceler.js`
   - `src/learning/mentor-loop.js`
   - `src/memory/recall-queries.ts`
-  - `src/memory/engram-client.js`
-  - `src/memory/teach-recall.js`
+  - `src/memory/engram-client.ts`
+  - `src/memory/teach-recall.ts`
 - core runtime still lives mostly in `.js`
 
 ## Milestones
@@ -48,8 +48,8 @@ Move the core from "disciplined JavaScript" to "strictly typed and safer to refa
   - `src/cli/formatters.js`
   - `src/context/noise-canceler.js`
   - `src/learning/mentor-loop.js`
-  - `src/memory/teach-recall.js`
-  - `src/memory/engram-client.js`
+  - `src/memory/teach-recall.ts`
+  - `src/memory/engram-client.ts`
   - `src/memory/recall-queries.js`
 - [x] eliminate the most fragile implicit `any` paths
 - [x] widen strict typing to CLI orchestration and formatter edges
@@ -63,6 +63,7 @@ Move the core from "disciplined JavaScript" to "strictly typed and safer to refa
 - [x] extract and migrate teach orchestration handler to `.ts` track (`src/cli/teach-command.ts`) to reduce `app.js` complexity
 - [x] migrate recall query heuristics to `.ts` track (`src/memory/recall-queries.ts`) to keep memory strategy rules refactor-safe
 - [x] migrate teach memory orchestration to `.ts` track (`src/memory/teach-recall.ts`, `src/memory/engram-auto-orchestrator.ts`) to reduce risk in retry/degraded recall logic
+- [x] migrate Engram adapter to `.ts` track (`src/memory/engram-client.ts`) so command execution and parse normalization are type-safe
 - [x] add build output strategy for publishable CLI use
 - preserve current command behavior and benchmark outputs
 

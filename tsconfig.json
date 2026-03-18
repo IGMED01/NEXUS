@@ -30,7 +30,7 @@
     "src/io/text-file.ts",
     "src/io/workspace-chunks.ts",
     "src/learning/mentor-loop.js",
-    "src/memory/engram-client.js",
+    "src/memory/engram-client.ts",
     "src/memory/engram-auto-orchestrator.ts",
     "src/memory/recall-queries.ts",
     "src/memory/teach-recall.ts",

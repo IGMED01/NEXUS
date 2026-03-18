@@ -22,6 +22,7 @@
     "src/io/config-file.js",
     "src/io/text-file.js",
     "src/io/workspace-chunks.js",
+    "src/memory/engram-client.js",
     "src/memory/engram-auto-orchestrator.js",
     "src/memory/recall-queries.js",
     "src/memory/teach-recall.js",

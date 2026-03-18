@@ -20,6 +20,7 @@ Use Engram as a durable memory layer while keeping this project responsible for 
 - initial skill contract exists at `skills/engram-auto-orchestrator/SKILL.md` to standardize automatic recall/save behavior
 - initial runtime orchestration exists through `src/memory/engram-auto-orchestrator.js` with config-driven auto recall and optional auto remember
 - TypeScript build-track sources now mirror memory orchestration logic in `src/memory/teach-recall.ts` and `src/memory/engram-auto-orchestrator.ts`
+- Engram adapter also has a `.ts` build-track source in `src/memory/engram-client.ts`
 - auto-remember now sanitizes sensitive paths and redacts secret-like fragments before persisting
 
 ## Milestones
