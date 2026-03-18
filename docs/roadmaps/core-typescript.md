@@ -18,6 +18,7 @@ Move the core from "disciplined JavaScript" to "strictly typed and safer to refa
 - config/bootstrap/scanner already pass strict checking
 - shared core contracts already exist in `src/types/core-contracts.d.ts`
 - selector, mentor loop, and memory recall now share typed shapes instead of ad-hoc inline objects
+- memory teach orchestration modules now have `.ts` build-track sources (`src/memory/teach-recall.ts`, `src/memory/engram-auto-orchestrator.ts`)
 - enforced `typecheck` already covers:
   - `src/analysis/readme-generator.js`
   - `src/cli/app.js`
@@ -61,6 +62,7 @@ Move the core from "disciplined JavaScript" to "strictly typed and safer to refa
 - [x] migrate CLI edge contracts/parsing to `.ts` track (`src/cli/arg-parser.ts`, `src/contracts/cli-contracts.ts`) for safer tool-facing interfaces
 - [x] extract and migrate teach orchestration handler to `.ts` track (`src/cli/teach-command.ts`) to reduce `app.js` complexity
 - [x] migrate recall query heuristics to `.ts` track (`src/memory/recall-queries.ts`) to keep memory strategy rules refactor-safe
+- [x] migrate teach memory orchestration to `.ts` track (`src/memory/teach-recall.ts`, `src/memory/engram-auto-orchestrator.ts`) to reduce risk in retry/degraded recall logic
 - [x] add build output strategy for publishable CLI use
 - preserve current command behavior and benchmark outputs
 
