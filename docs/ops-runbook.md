@@ -63,6 +63,7 @@ Expected:
   - delta vs previous CI comment (same PR)
   - gate status (`PASS`/`FAIL`)
   - implementation source: `src/ci/security-pr-summary.js` (portable tests)
+  - golden fixtures: `test/fixtures/ci/security-pr-summary.baseline.md` and `security-pr-summary.delta.md`
 
 ## 3) Memory safety operating rules
 

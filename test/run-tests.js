@@ -132,6 +132,13 @@ function assertValueType(value, expectedType) {
 }
 
 /**
+ * @param {string} value
+ */
+function normalizeNewlines(value) {
+  return value.replace(/\r\n/g, "\n").trimEnd();
+}
+
+/**
  * @param {"doctor" | "teach" | "ingest-security"} name
  */
 async function loadContractFixture(name) {
@@ -1601,6 +1608,79 @@ run("security PR summary builder computes deltas against previous bot comment", 
   assert.match(current.body, /Max finding priority: \+0.100/);
   assert.equal(parseSecuritySummaryMetric(current.body, "Included findings"), 2);
   assert.equal(parseSecuritySummaryMetric(current.body, "Unknown metric"), null);
+});
+
+run("security PR summary baseline matches golden fixture", async () => {
+  const summary = buildSecurityPipelineSummaryComment({
+    nodeVersion: "20",
+    chunksPayload: {
+      chunks: [
+        {
+          id: "finding-critical",
+          priority: 1
+        }
+      ]
+    },
+    teachPayload: {
+      selectedContext: [{}]
+    }
+  });
+  const fixturePath = path.join(
+    process.cwd(),
+    "test",
+    "fixtures",
+    "ci",
+    "security-pr-summary.baseline.md"
+  );
+  const expected = await readFile(fixturePath, "utf8");
+
+  assert.equal(normalizeNewlines(summary.body), normalizeNewlines(expected));
+});
+
+run("security PR summary delta matches golden fixture", async () => {
+  const previous = buildSecurityPipelineSummaryComment({
+    nodeVersion: "20",
+    chunksPayload: {
+      chunks: [
+        {
+          id: "finding-critical",
+          priority: 0.9
+        }
+      ]
+    },
+    teachPayload: {
+      selectedContext: [{}]
+    }
+  });
+  const current = buildSecurityPipelineSummaryComment({
+    nodeVersion: "20",
+    chunksPayload: {
+      chunks: [
+        {
+          id: "finding-critical",
+          priority: 1
+        },
+        {
+          id: "finding-medium",
+          priority: 0.84
+        }
+      ]
+    },
+    teachPayload: {
+      selectedContext: [{}, {}]
+    },
+    previousCommentBody: previous.body
+  });
+  const fixturePath = path.join(
+    process.cwd(),
+    "test",
+    "fixtures",
+    "ci",
+    "security-pr-summary.delta.md"
+  );
+  const expected = await readFile(fixturePath, "utf8");
+
+  assert.equal(normalizeNewlines(current.body), normalizeNewlines(expected));
 });
 
 run("readme generator infers concepts and reading order", async () => {
