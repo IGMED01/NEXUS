@@ -130,6 +130,7 @@ Si es hoy:
 - `docs/repo-analysis.md`: por que se eligio Engram como referencia principal
 - `docs/context-noise-cancellation.md`: diseno del filtro de contexto
 - `docs/security-model.md`: modelo de seguridad, redaccion y limites del escaneo
+- `docs/skills-governance.md`: politica para aprobar o bloquear skills con niveles de riesgo y rollback
 - `docs/ops-runbook.md`: checklist operativo para validacion, modo degradado y releases
 - `docs/usage.md`: como usar la CLI
 - `learning-context.config.json`: defaults versionados del proyecto

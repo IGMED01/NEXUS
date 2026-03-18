@@ -165,6 +165,7 @@ These projects are credited as architectural inspiration. They are not listed as
 - `docs/context-noise-cancellation.md`: design of the context filtering system
 - `docs/benchmark.md`: benchmark method and metrics
 - `docs/security-model.md`: scan safety model, secret redaction policy, and limits
+- `docs/skills-governance.md`: policy to approve/block skills with risk tiers and rollback rules
 - `docs/ops-runbook.md`: operational checklist for validation, degraded mode, and release hygiene
 - `docs/typescript-backend-vertical.md`: end-to-end TypeScript backend demo flow
 - `docs/usage.md`: CLI usage and input contract
