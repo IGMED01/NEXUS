@@ -45,13 +45,24 @@
 
 /**
  * @typedef {{
+ *   ignoreSensitiveFiles: boolean,
+ *   redactSensitiveContent: boolean,
+ *   ignoreGeneratedFiles: boolean,
+ *   allowSensitivePaths: string[],
+ *   extraSensitivePathFragments: string[]
+ * }} ProjectSecurityConfig
+ */
+
+/**
+ * @typedef {{
  *   schemaVersion: string,
  *   project: string,
  *   workspace: string,
  *   output: ProjectOutputConfig,
  *   selection: ProjectSelectionConfig,
  *   memory: ProjectMemoryConfig,
- *   engram: ProjectEngramConfig
+ *   engram: ProjectEngramConfig,
+ *   security: ProjectSecurityConfig
  * }} ProjectConfig
  */
 
@@ -104,6 +115,29 @@ function optionalBoolean(value, label) {
   }
 
   return /** @type {boolean} */ (value);
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} label
+ * @returns {string[] | undefined}
+ */
+function optionalStringArray(value, label) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    fail(`${label} must be an array of strings.`);
+  }
+
+  return /** @type {unknown[]} */ (value).map((entry, index) => {
+    if (typeof entry !== "string" || entry.trim() === "") {
+      fail(`${label}[${index}] must be a non-empty string.`);
+    }
+
+    return /** @type {string} */ (entry).trim();
+  });
 }
 
 /**
@@ -168,6 +202,13 @@ export function defaultProjectConfig() {
     engram: {
       binaryPath: "tools/engram/engram.exe",
       dataDir: ".engram"
+    },
+    security: {
+      ignoreSensitiveFiles: true,
+      redactSensitiveContent: true,
+      ignoreGeneratedFiles: true,
+      allowSensitivePaths: [],
+      extraSensitivePathFragments: []
     }
   };
 }
@@ -198,10 +239,15 @@ export function validateProjectConfig(value) {
     assertObject(config.engram, "Project config.engram");
   }
 
+  if (config.security !== undefined) {
+    assertObject(config.security, "Project config.security");
+  }
+
   const output = /** @type {Record<string, unknown> | undefined} */ (config.output);
   const selection = /** @type {Record<string, unknown> | undefined} */ (config.selection);
   const memory = /** @type {Record<string, unknown> | undefined} */ (config.memory);
   const engram = /** @type {Record<string, unknown> | undefined} */ (config.engram);
+  const security = /** @type {Record<string, unknown> | undefined} */ (config.security);
 
   const defaultFormat = optionalString(output?.defaultFormat, "Project config.output.defaultFormat");
 
@@ -279,6 +325,33 @@ export function validateProjectConfig(value) {
       dataDir:
         optionalString(engram?.dataDir, "Project config.engram.dataDir") ??
         defaults.engram.dataDir
+    },
+    security: {
+      ignoreSensitiveFiles:
+        optionalBoolean(
+          security?.ignoreSensitiveFiles,
+          "Project config.security.ignoreSensitiveFiles"
+        ) ?? defaults.security.ignoreSensitiveFiles,
+      redactSensitiveContent:
+        optionalBoolean(
+          security?.redactSensitiveContent,
+          "Project config.security.redactSensitiveContent"
+        ) ?? defaults.security.redactSensitiveContent,
+      ignoreGeneratedFiles:
+        optionalBoolean(
+          security?.ignoreGeneratedFiles,
+          "Project config.security.ignoreGeneratedFiles"
+        ) ?? defaults.security.ignoreGeneratedFiles,
+      allowSensitivePaths:
+        optionalStringArray(
+          security?.allowSensitivePaths,
+          "Project config.security.allowSensitivePaths"
+        ) ?? defaults.security.allowSensitivePaths,
+      extraSensitivePathFragments:
+        optionalStringArray(
+          security?.extraSensitivePathFragments,
+          "Project config.security.extraSensitivePathFragments"
+        ) ?? defaults.security.extraSensitivePathFragments
     }
   };
 }

@@ -28,8 +28,8 @@ Reduce the chance of leaking sensitive material while still preserving useful co
 
 ### Milestone 2 - Better policy control
 
-- allowlist/denylist style configuration
-- per-project scan rules
+- [x] allowlist/denylist style configuration
+- [x] per-project scan rules
 - clearer operator messaging around what never enters context
 
 ### Milestone 3 - Safer real-world adoption

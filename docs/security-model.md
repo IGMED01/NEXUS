@@ -63,6 +63,37 @@ The scanner reports:
   - JWT-like tokens
   - connection strings
 
+## Project-level policy overrides
+
+The default policy is intentionally strict, but the project config can now override it through `learning-context.config.json`.
+
+Supported fields:
+
+- `security.ignoreSensitiveFiles`
+- `security.redactSensitiveContent`
+- `security.ignoreGeneratedFiles`
+- `security.allowSensitivePaths`
+- `security.extraSensitivePathFragments`
+
+What each field means:
+
+- **ignoreSensitiveFiles**
+  - if `true`, obvious credential containers never become chunks
+- **redactSensitiveContent**
+  - if `true`, secret-like fragments inside useful files are masked
+- **ignoreGeneratedFiles**
+  - if `true`, generated artifacts like `README.LEARN.md` stay out of the scan
+- **allowSensitivePaths**
+  - explicit repo-relative exceptions for safe fixtures that would normally match the sensitive-file policy
+- **extraSensitivePathFragments**
+  - extra repo-specific path fragments that should always be ignored
+
+Operational rule:
+
+- prefer **tight defaults**
+- use `allowSensitivePaths` only for deliberate examples
+- do not turn protections off globally unless you understand the data in that repo
+
 ## Limits
 
 This is **not** a complete security product.

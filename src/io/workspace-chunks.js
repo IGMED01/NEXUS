@@ -5,7 +5,9 @@ import { extname, relative, resolve } from "node:path";
 
 import {
   createSecurityScanStats,
+  isSensitivePathAllowlisted,
   redactSensitiveContent,
+  resolveSecurityPolicy,
   shouldIgnoreSensitiveFile
 } from "../security/secret-redaction.js";
 
@@ -17,6 +19,22 @@ import {
  *   absolutePath: string,
  *   source: string
  * }} WorkspaceFile
+ */
+
+/**
+ * @typedef {{
+ *   ignoreSensitiveFiles?: boolean,
+ *   redactSensitiveContent?: boolean,
+ *   ignoreGeneratedFiles?: boolean,
+ *   allowSensitivePaths?: string[],
+ *   extraSensitivePathFragments?: string[]
+ * }} WorkspaceSecurityOptions
+ */
+
+/**
+ * @typedef {{
+ *   security?: WorkspaceSecurityOptions
+ * }} LoadWorkspaceChunksOptions
  */
 
 const IGNORED_DIRS = new Set([
@@ -154,15 +172,16 @@ function createScanStats(rootPath) {
  * @param {string} currentPath
  * @param {WorkspaceFile[]} files
  * @param {ScanStats} stats
+ * @param {ReturnType<typeof resolveSecurityPolicy>} securityPolicy
  */
-async function walk(rootPath, currentPath, files, stats) {
+async function walk(rootPath, currentPath, files, stats, securityPolicy) {
   const entries = await readdir(currentPath, { withFileTypes: true });
   const sortedEntries = entries.sort((left, right) => left.name.localeCompare(right.name));
 
   for (const entry of sortedEntries) {
     if (entry.isDirectory()) {
       if (!IGNORED_DIRS.has(entry.name)) {
-        await walk(rootPath, resolve(currentPath, entry.name), files, stats);
+        await walk(rootPath, resolve(currentPath, entry.name), files, stats, securityPolicy);
       }
 
       continue;
@@ -172,19 +191,21 @@ async function walk(rootPath, currentPath, files, stats) {
     const absolutePath = resolve(currentPath, entry.name);
     const source = toPosixPath(relative(rootPath, absolutePath));
     const extension = extname(entry.name);
+    const allowlistedSensitivePath = isSensitivePathAllowlisted(source, securityPolicy);
 
-    if (shouldIgnoreGeneratedFile(source)) {
+    if (securityPolicy.ignoreGeneratedFiles && shouldIgnoreGeneratedFile(source)) {
       stats.ignoredFiles += 1;
       continue;
     }
 
-    if (shouldIgnoreSensitiveFile(source)) {
+    if (!allowlistedSensitivePath && shouldIgnoreSensitiveFile(source, securityPolicy)) {
       stats.ignoredFiles += 1;
       stats.security.ignoredSensitiveFiles += 1;
       continue;
     }
 
     if (
+      !allowlistedSensitivePath &&
       !ALLOWED_EXTENSIONS.has(extension) &&
       !["README.md", "AGENTS.md", "agents.md", "package.json"].includes(entry.name)
     ) {
@@ -201,21 +222,23 @@ async function walk(rootPath, currentPath, files, stats) {
 
 /**
  * @param {string} rootPath
+ * @param {LoadWorkspaceChunksOptions} [options]
  */
-export async function loadWorkspaceChunks(rootPath) {
+export async function loadWorkspaceChunks(rootPath, options = {}) {
   const resolvedRoot = resolve(rootPath);
   /** @type {WorkspaceFile[]} */
   const files = [];
   const stats = createScanStats(resolvedRoot);
+  const securityPolicy = resolveSecurityPolicy(options.security);
 
-  await walk(resolvedRoot, resolvedRoot, files, stats);
+  await walk(resolvedRoot, resolvedRoot, files, stats, securityPolicy);
 
   /** @type {Chunk[]} */
   const chunks = [];
 
   for (const file of files) {
     const raw = await readFile(file.absolutePath, "utf8");
-    const redaction = redactSensitiveContent(raw);
+    const redaction = redactSensitiveContent(raw, securityPolicy);
     const wasTruncated = redaction.content.length > MAX_FILE_CHARS;
     const content = wasTruncated
       ? `${redaction.content.slice(0, MAX_FILE_CHARS)}\n/* file truncated for context scan */`

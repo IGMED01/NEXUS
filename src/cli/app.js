@@ -180,15 +180,18 @@ function serializeCommandResult(command, payload, format, configInfo, meta = {})
 /**
  * @param {CliCommand | "help" | ""} command
  * @param {CliOptions} options
+ * @param {LoadedConfigInfo} [loadedConfig]
  * @returns {Promise<ChunkSourceResult>}
  */
-async function loadChunkSource(command, options) {
+async function loadChunkSource(command, options, loadedConfig) {
   if (options.input) {
     return loadChunkFile(options.input);
   }
 
   if (options.workspace || command === "readme") {
-    return loadWorkspaceChunks(options.workspace || ".");
+    return loadWorkspaceChunks(options.workspace || ".", {
+      security: loadedConfig?.config.security
+    });
   }
 
   throw new Error("Provide --input <file> or --workspace <dir>.");
@@ -612,7 +615,7 @@ export async function runCli(argv, dependencies = {}) {
     };
   }
 
-  const source = await loadChunkSource(command, options);
+  const source = await loadChunkSource(command, options, loadedConfig);
   const { payload, path, stats } = source;
   const numeric = readNumericOptions(options);
 

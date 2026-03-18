@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { execFile as execFileCallback } from "node:child_process";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { buildLearningReadme } from "../src/analysis/readme-generator.js";
 import { runCli } from "../src/cli/app.js";
-import { defaultProjectConfig } from "../src/contracts/config-contracts.js";
+import { defaultProjectConfig, parseProjectConfig } from "../src/contracts/config-contracts.js";
 import { parseChunkFile } from "../src/contracts/context-contracts.js";
 import { loadWorkspaceChunks } from "../src/io/workspace-chunks.js";
 import { buildLearningPacket } from "../src/learning/mentor-loop.js";
@@ -24,6 +26,7 @@ import {
 } from "../src/security/secret-redaction.js";
 
 const tests = [];
+const execFile = promisify(execFileCallback);
 
 function run(name, fn) {
   tests.push({ name, fn });
@@ -634,6 +637,35 @@ run("workspace scanning ignores common credential files before chunking", async 
   }
 });
 
+run("workspace scanning honors project security policy overrides", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-security-policy-"));
+
+  try {
+    await writeFile(
+      path.join(tempRoot, ".env.example"),
+      'API_KEY="sk-abcdefghijklmnopqrstuvwxyz123456"\n',
+      "utf8"
+    );
+    await writeFile(path.join(tempRoot, "keep.js"), "export const keep = true;\n", "utf8");
+
+    const result = await loadWorkspaceChunks(tempRoot, {
+      security: {
+        allowSensitivePaths: [".env.example"],
+        redactSensitiveContent: false
+      }
+    });
+
+    const envChunk = result.payload.chunks.find((entry) => entry.source === ".env.example");
+
+    assert.ok(envChunk);
+    assert.match(envChunk.content, /sk-abcdefghijklmnopqrstuvwxyz123456/);
+    assert.equal(result.stats.redactedFiles, 0);
+    assert.equal(result.stats.security.ignoredSensitiveFiles, 0);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 run("secret redaction catches private keys jwt tokens and connection strings", () => {
   const redacted = redactSensitiveContent(
     [
@@ -659,6 +691,40 @@ run("sensitive file matcher flags high-risk credential paths", () => {
   assert.equal(shouldIgnoreSensitiveFile(".aws/credentials"), true);
   assert.equal(shouldIgnoreSensitiveFile("secrets/prod.json"), true);
   assert.equal(shouldIgnoreSensitiveFile("src/auth/service.ts"), false);
+  assert.equal(
+    shouldIgnoreSensitiveFile(".env.example", {
+      allowSensitivePaths: [".env.example"]
+    }),
+    false
+  );
+  assert.equal(
+    shouldIgnoreSensitiveFile("docs/private-notes.md", {
+      extraSensitivePathFragments: ["private-notes"]
+    }),
+    true
+  );
+});
+
+run("project config parses security policy overrides", () => {
+  const parsed = parseProjectConfig(
+    JSON.stringify({
+      project: "demo",
+      security: {
+        ignoreSensitiveFiles: false,
+        redactSensitiveContent: false,
+        ignoreGeneratedFiles: false,
+        allowSensitivePaths: [".env.example"],
+        extraSensitivePathFragments: ["fixtures/private"]
+      }
+    }),
+    "inline"
+  );
+
+  assert.equal(parsed.security.ignoreSensitiveFiles, false);
+  assert.equal(parsed.security.redactSensitiveContent, false);
+  assert.equal(parsed.security.ignoreGeneratedFiles, false);
+  assert.deepEqual(parsed.security.allowSensitivePaths, [".env.example"]);
+  assert.deepEqual(parsed.security.extraSensitivePathFragments, ["fixtures/private"]);
 });
 
 run("cli help documents doctor and init", async () => {
@@ -687,6 +753,8 @@ run("init creates config with a stable project id from package name", async () =
     assert.equal(result.project, "example-learning-repo");
     assert.equal(parsed.project, "example-learning-repo");
     assert.equal(parsed.workspace, ".");
+    assert.equal(parsed.security.ignoreSensitiveFiles, true);
+    assert.equal(parsed.security.redactSensitiveContent, true);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -717,12 +785,49 @@ run("doctor reports missing dependencies as actionable warnings", async () => {
 
     const dependencyCheck = result.checks.find((check) => check.id === "dependencies");
     const npmCheck = result.checks.find((check) => check.id === "npm");
+    const scanSafetyCheck = result.checks.find((check) => check.id === "scan-safety");
 
     assert.ok(dependencyCheck);
     assert.equal(dependencyCheck.status, "warn");
     assert.match(dependencyCheck.fix, /npm ci/i);
     assert.ok(npmCheck);
     assert.equal(npmCheck.status, "pass");
+    assert.ok(scanSafetyCheck);
+    assert.equal(scanSafetyCheck.status, "pass");
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("doctor warns when security protections are relaxed", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-doctor-security-"));
+
+  try {
+    await writeFile(
+      path.join(tempRoot, "package.json"),
+      JSON.stringify({ name: "doctor-security-fixture" }, null, 2),
+      "utf8"
+    );
+
+    const config = defaultProjectConfig();
+    config.project = "doctor-security-fixture";
+    config.workspace = ".";
+    config.security.ignoreSensitiveFiles = false;
+
+    const result = await runProjectDoctor({
+      cwd: tempRoot,
+      configInfo: {
+        found: true,
+        path: path.join(tempRoot, "learning-context.config.json"),
+        config
+      }
+    });
+
+    const scanSafetyCheck = result.checks.find((check) => check.id === "scan-safety");
+
+    assert.ok(scanSafetyCheck);
+    assert.equal(scanSafetyCheck.status, "warn");
+    assert.match(scanSafetyCheck.fix, /ignoreSensitiveFiles/i);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }

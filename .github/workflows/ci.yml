@@ -28,6 +28,12 @@ jobs:
       - name: Run incremental typecheck
         run: npm run typecheck
 
+      - name: Build dist CLI
+        run: npm run build
+
+      - name: Smoke test dist CLI
+        run: npm run build:smoke
+
       - name: Run portable tests
         run: npm test
 

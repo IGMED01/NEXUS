@@ -198,6 +198,7 @@ npm run doctor
 npm run init:config
 npm test
 npm run typecheck
+npm run build
 npm run benchmark
 npm run benchmark:recall
 npm run benchmark:vertical
@@ -214,6 +215,7 @@ That file is the official place for:
 - selection budgets
 - recall defaults
 - Engram binary and data directory paths
+- scan safety defaults and per-project overrides
 
 CLI flags still win over config values when both are present.
 
@@ -229,7 +231,38 @@ To generate the base config file:
 npm run init:config
 ```
 
+Key `config.security` fields:
+
+- `ignoreSensitiveFiles`
+- `redactSensitiveContent`
+- `ignoreGeneratedFiles`
+- `allowSensitivePaths`
+- `extraSensitivePathFragments`
+
 Current `typecheck` scope is intentionally incremental: it hardens the config/bootstrap and workspace-scan layer first, instead of pretending the whole repo is already fully migrated to strict TypeScript.
+
+## Build and TypeScript migration strategy
+
+The repo now has two different TypeScript-related flows on purpose:
+
+1. `npm run typecheck`
+   - strict incremental safety gate for the hardened core chain
+2. `npm run build`
+   - emits a runnable `dist/` CLI from the current runtime without pretending every file is fully migrated
+
+Useful commands:
+
+```bash
+npm run build
+npm run build:smoke
+```
+
+Conceptually:
+
+- **typecheck** = where we already enforce stronger contracts
+- **build** = publishable runtime output for packaging and CI smoke tests
+
+The local developer entrypoint stays `src/cli.js` for now. The `dist/` build is the bridge toward a later full `.ts` migration, not a fake claim that migration is already done.
 
 ## Privacy and scan policy
 
@@ -251,8 +284,14 @@ It currently:
   - connection strings and DSNs
   - common password/secret assignments
 - counts redacted files, ignored sensitive files, and redaction categories in scan statistics
+- allows project-level security overrides through `learning-context.config.json`
 
 That means the CLI now exposes not only selected context, but also **how much data was ignored, truncated, or redacted**.
+
+Security overrides are deliberately explicit:
+
+- use `allowSensitivePaths` only for known-safe fixtures such as examples
+- use `extraSensitivePathFragments` when a repo has custom sensitive areas that should never enter context
 
 Security model details live in [docs/security-model.md](docs/security-model.md).
 

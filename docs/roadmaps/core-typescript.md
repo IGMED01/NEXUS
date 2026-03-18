@@ -57,7 +57,7 @@ Move the core from "disciplined JavaScript" to "strictly typed and safer to refa
 ### Milestone 3 - Real `.ts` migration
 
 - move selected core files to `.ts`
-- add build output strategy for publishable CLI use
+- [x] add build output strategy for publishable CLI use
 - preserve current command behavior and benchmark outputs
 
 ## Done means

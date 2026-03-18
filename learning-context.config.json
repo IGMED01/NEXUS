@@ -22,5 +22,12 @@
   "engram": {
     "binaryPath": "tools/engram/engram.exe",
     "dataDir": ".engram"
+  },
+  "security": {
+    "ignoreSensitiveFiles": true,
+    "redactSensitiveContent": true,
+    "ignoreGeneratedFiles": true,
+    "allowSensitivePaths": [],
+    "extraSensitivePathFragments": []
   }
 }

@@ -177,7 +177,23 @@ export async function runProjectDoctor(input) {
     label: "Workspace root",
     status: workspaceExists ? "pass" : "fail",
     detail: workspaceExists ? workspaceRoot : `Missing workspace: ${workspaceRoot}`,
-    fix: workspaceExists ? "" : "Set a valid workspace path in learning-context.config.json."
+      fix: workspaceExists ? "" : "Set a valid workspace path in learning-context.config.json."
+  });
+
+  const scanSafetyRelaxed =
+    configInfo.config.security.ignoreSensitiveFiles === false ||
+    configInfo.config.security.redactSensitiveContent === false ||
+    configInfo.config.security.ignoreGeneratedFiles === false;
+  checks.push({
+    id: "scan-safety",
+    label: "Scan safety policy",
+    status: scanSafetyRelaxed ? "warn" : "pass",
+    detail: scanSafetyRelaxed
+      ? "One or more default protections were relaxed in config.security."
+      : "Default ignore/redact protections are enabled.",
+    fix: scanSafetyRelaxed
+      ? "Re-enable config.security.ignoreSensitiveFiles, redactSensitiveContent, and ignoreGeneratedFiles unless you intentionally need broader scanning."
+      : ""
   });
 
   const engramBinary = path.resolve(cwd, configInfo.config.engram.binaryPath || "tools/engram/engram.exe");

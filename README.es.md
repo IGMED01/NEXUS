@@ -158,6 +158,7 @@ npm run doctor
 npm run init:config
 npm test
 npm run typecheck
+npm run build
 npm run benchmark
 npm run benchmark:recall
 npm run benchmark:vertical
@@ -184,6 +185,7 @@ Ese archivo es el lugar oficial para definir:
 - budgets de seleccion
 - defaults de recall
 - rutas de Engram
+- defaults y overrides de seguridad del escaneo
 
 Si pasás flags en CLI, esos flags pisan el valor del config.
 
@@ -199,7 +201,38 @@ Para generar el config base:
 npm run init:config
 ```
 
+Campos importantes de `config.security`:
+
+- `ignoreSensitiveFiles`
+- `redactSensitiveContent`
+- `ignoreGeneratedFiles`
+- `allowSensitivePaths`
+- `extraSensitivePathFragments`
+
 El `typecheck` actual es incremental a proposito: primero endurece config/bootstrap y el scanner de workspace, en vez de fingir que todo el repo ya esta migrado a TypeScript estricto.
+
+## Build y estrategia de migracion a TypeScript
+
+Ahora el repo tiene dos flujos distintos a proposito:
+
+1. `npm run typecheck`
+   - control estricto incremental sobre la parte endurecida del core
+2. `npm run build`
+   - emite una CLI runnable en `dist/` a partir del runtime actual sin mentir diciendo que todo ya esta migrado
+
+Comandos utiles:
+
+```bash
+npm run build
+npm run build:smoke
+```
+
+La idea conceptual es:
+
+- **typecheck** = donde ya exigimos contratos mas duros
+- **build** = salida publicable para CI y futura distribucion
+
+El entrypoint de desarrollo sigue siendo `src/cli.js`. El build `dist/` es el puente hacia una migracion total, no una excusa para fingir que ya llegamos.
 
 ## Privacidad y politica de escaneo
 
@@ -221,8 +254,14 @@ Hoy:
   - connection strings y DSNs
   - asignaciones comunes de password/secret
 - cuenta archivos redactados, archivos sensibles ignorados y categorias de redaccion en las estadisticas del escaneo
+- permite overrides por proyecto desde `learning-context.config.json`
 
-Eso significa que la CLI ya no solo muestra contexto seleccionado, sino tambien **cuanto se ignoro, truncó o redactó**.
+Eso significa que la CLI ya no solo muestra contexto seleccionado, sino tambien **cuanto se ignoro, trunc? o redact?**.
+
+Los overrides de seguridad deben usarse con criterio:
+
+- `allowSensitivePaths` solo para fixtures o ejemplos que sabes que son seguros
+- `extraSensitivePathFragments` para marcar zonas sensibles propias del repo que nunca deberian entrar al contexto
 
 La explicacion de seguridad y limites operativos esta en `docs/security-model.md`.
 

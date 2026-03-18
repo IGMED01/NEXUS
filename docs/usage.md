@@ -81,6 +81,7 @@ Use that file for stable defaults such as:
 - token budgets
 - memory limits
 - Engram paths
+- scan safety policy
 
 Concept:
 
@@ -113,8 +114,9 @@ What happens internally:
 1. the CLI creates `learning-context.config.json` if missing
 2. it derives a stable project id from `package.json` when available
 3. it writes official defaults for selection and memory
+4. it also writes the default scan-safety policy
 
-## Incremental typecheck
+## Incremental typecheck vs build
 
 ```bash
 npm run typecheck
@@ -128,6 +130,24 @@ Today this validates the hardened bootstrap layer first:
 - project doctor/init operations
 
 That scope is deliberate. It is a real baseline, not a fake claim that the whole repo is already under strict TypeScript.
+
+For a publishable runtime build:
+
+```bash
+npm run build
+npm run build:smoke
+```
+
+Concept:
+
+- `typecheck` = strict gate for the subset we already hardened
+- `build` = emits `dist/` from the current runtime so CI and future packaging can run a compiled CLI
+
+That is the honest migration strategy:
+
+1. widen strict typing where the contracts are already stable
+2. keep building the full runtime to `dist/`
+3. move modules to `.ts` gradually instead of pretending the whole repo is already migrated
 
 ## Privacy and redaction
 
@@ -146,6 +166,35 @@ Conceptually:
 - **report** = make the safety layer auditable instead of invisible
 
 See `docs/security-model.md` for the exact policy and limits.
+
+## Security policy in project config
+
+`learning-context.config.json` now supports:
+
+- `security.ignoreSensitiveFiles`
+- `security.redactSensitiveContent`
+- `security.ignoreGeneratedFiles`
+- `security.allowSensitivePaths`
+- `security.extraSensitivePathFragments`
+
+Use those fields carefully:
+
+- `allowSensitivePaths` is for known-safe fixtures such as teaching examples
+- `extraSensitivePathFragments` is for custom repo zones that should never be scanned
+
+Example:
+
+```json
+{
+  "security": {
+    "ignoreSensitiveFiles": true,
+    "redactSensitiveContent": true,
+    "ignoreGeneratedFiles": true,
+    "allowSensitivePaths": [".env.example"],
+    "extraSensitivePathFragments": ["internal/private-fixtures"]
+  }
+}
+```
 
 ## Command 1: Select useful context in the synthetic playground
 
