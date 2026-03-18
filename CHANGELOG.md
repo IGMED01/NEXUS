@@ -7,12 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-03-18
+
 ### Added
-- CodeQL workflow for JavaScript/TypeScript static analysis in GitHub Actions.
-- Golden fixtures for PR security summary rendering stability.
+- `CodeQL` is now enforced as a required branch protection check on `main`.
+- CI and CodeQL workflows now force JavaScript-based actions onto Node 24 runtime.
 
 ### Changed
-- PR security summary logic moved from inline workflow script to `src/ci/security-pr-summary.js` with portable tests.
+- Completed dependency maintenance batch from Dependabot (GitHub Actions + npm root + TypeScript vertical).
+- Hardened `src/memory/engram-client.js` to normalize `stdout/stderr` from `string | Buffer`, preventing strict typecheck failures after Node type upgrades.
 
 ## [0.2.0] - 2026-03-18
 
