@@ -37,6 +37,10 @@ import {
   buildSecurityPipelineSummaryComment,
   parseSecuritySummaryMetric
 } from "../src/ci/security-pr-summary.js";
+import {
+  evaluateReleaseDiscipline,
+  formatReleaseDisciplineReport
+} from "../src/ci/release-discipline.js";
 
 const tests = [];
 const execFile = promisify(execFileCallback);
@@ -1780,6 +1784,60 @@ run("security PR summary delta matches golden fixture", async () => {
   const expected = await readFile(fixturePath, "utf8");
 
   assert.equal(normalizeNewlines(current.body), normalizeNewlines(expected));
+});
+
+run("release discipline evaluator passes for repository policy files", async () => {
+  const [packageJsonRaw, changelogRaw, versioningRaw] = await Promise.all([
+    readFile(path.join(process.cwd(), "package.json"), "utf8"),
+    readFile(path.join(process.cwd(), "CHANGELOG.md"), "utf8"),
+    readFile(path.join(process.cwd(), "VERSIONING.md"), "utf8")
+  ]);
+
+  const result = evaluateReleaseDiscipline({
+    packageJsonRaw,
+    changelogRaw,
+    versioningRaw
+  });
+
+  assert.equal(result.passed, true, formatReleaseDisciplineReport(result));
+  assert.equal(result.checks.semverVersion, true);
+  assert.equal(result.checks.changelogHasCurrentVersion, true);
+  assert.equal(result.checks.versioningHasReleaseChecklist, true);
+});
+
+run("release discipline evaluator fails when changelog misses current version section", () => {
+  const result = evaluateReleaseDiscipline({
+    packageJsonRaw: JSON.stringify({ version: "1.2.3" }),
+    changelogRaw: ["## [Unreleased]", "", "## [1.2.2] - 2026-03-18", "", "### Contracts"].join("\n"),
+    versioningRaw: ["## Release checklist", "", "1. test"].join("\n")
+  });
+
+  assert.equal(result.passed, false);
+  assert.equal(
+    result.errors.some((error) => /must include a release heading for package version 1.2.3/i.test(error)),
+    true
+  );
+});
+
+run("release discipline evaluator fails when current release has no Contracts subsection", () => {
+  const result = evaluateReleaseDiscipline({
+    packageJsonRaw: JSON.stringify({ version: "1.2.3" }),
+    changelogRaw: [
+      "## [Unreleased]",
+      "",
+      "## [1.2.3] - 2026-03-18",
+      "",
+      "### Added",
+      "- feature"
+    ].join("\n"),
+    versioningRaw: ["## Release checklist", "", "1. test"].join("\n")
+  });
+
+  assert.equal(result.passed, false);
+  assert.equal(
+    result.errors.some((error) => /must include a '### Contracts' subsection/i.test(error)),
+    true
+  );
 });
 
 run("readme generator infers concepts and reading order", async () => {

@@ -37,6 +37,7 @@ Move the project from "strong demo" to "production-grade open-source CLI" with e
 
 5. **Release discipline and governance**
    - Problem: repo is stable but process is not fully hardened.
+   - Status (2026-03-18): **in progress** (CI release-discipline gate + policy docs + branch protection active)
    - Done when:
      - semantic versioning + changelog gate in CI
      - release checklist is mandatory and versioned
