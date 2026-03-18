@@ -2161,6 +2161,16 @@ run("notion config resolver uses explicit options over env defaults", () => {
   assert.equal(config.apiBaseUrl, "https://api.notion.com/v1");
 });
 
+run("notion config resolver extracts page id from full Notion URL", () => {
+  const config = resolveNotionConfig({
+    token: "test-token",
+    parentPageId:
+      "https://www.notion.so/Workspace/PR-Learnings-1234567890abcdef1234567890abcdef?pvs=4"
+  });
+
+  assert.equal(config.parentPageId, "1234567890abcdef1234567890abcdef");
+});
+
 run("knowledge block builder includes metadata summary and tags", () => {
   const built = buildKnowledgeBlocks(
     "CLI rollout",

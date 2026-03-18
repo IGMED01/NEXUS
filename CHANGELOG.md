@@ -12,6 +12,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Added `.ts` build-track source for Engram adapter execution/parsing (`src/memory/engram-client.ts`) and wired TypeScript configs to prefer it during typecheck/build.
 - Added Notion team-knowledge sync command (`sync-knowledge`) that appends structured notes to a target page using token + page-id configuration.
 - Added merged-PR knowledge sync automation (`scripts/sync-pr-learnings.js` + `.github/workflows/pr-learnings-sync.yml`) that transforms PR metadata into `sync-knowledge` notes with degraded skip mode when Notion secrets are missing.
+- Hardened Notion config normalization so `NOTION_PARENT_PAGE_ID` accepts full Notion page URLs (auto-extracts page id) to avoid invalid request URL failures.
 
 ### Contracts
 - Added v1 compatibility fixtures/tests for all JSON CLI commands (`version`, `doctor`, `init`, `sync-knowledge`, `ingest-security`, `select`, `teach`, `readme`, `recall`, `remember`, `close`).

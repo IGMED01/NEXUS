@@ -42,12 +42,48 @@ function normalizeText(value) {
 }
 
 /**
+ * @param {string} value
+ */
+function normalizeNotionPageId(value) {
+  const compact = normalizeText(value);
+
+  if (!compact) {
+    return "";
+  }
+
+  const fromUrl = (() => {
+    if (!/^https?:\/\//iu.test(compact)) {
+      return compact;
+    }
+
+    try {
+      const parsed = new URL(compact);
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    } catch {
+      return compact;
+    }
+  })();
+
+  const uuidMatch = fromUrl.match(
+    /([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/iu
+  );
+
+  if (!uuidMatch) {
+    return compact;
+  }
+
+  return uuidMatch[1];
+}
+
+/**
  * @param {NotionConfigInput} [input]
  * @returns {NotionResolvedConfig}
  */
 export function resolveNotionConfig(input = {}) {
   const token = normalizeText(input.token || process.env.NOTION_TOKEN || process.env.NOTION_API_KEY);
-  const parentPageId = normalizeText(input.parentPageId || process.env.NOTION_PARENT_PAGE_ID);
+  const parentPageId = normalizeNotionPageId(
+    normalizeText(input.parentPageId || process.env.NOTION_PARENT_PAGE_ID)
+  );
   const apiBaseUrl = normalizeText(input.apiBaseUrl || process.env.NOTION_API_BASE_URL);
 
   return {

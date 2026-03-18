@@ -419,6 +419,8 @@ Environment fallback:
 - `NOTION_TOKEN` or `NOTION_API_KEY`
 - `NOTION_PARENT_PAGE_ID`
 
+Tip: `NOTION_PARENT_PAGE_ID` can be either the raw page id or a full Notion page URL (the CLI extracts the id).
+
 ## Command 9: Build PR learnings payload and sync it to Notion
 
 ```bash
