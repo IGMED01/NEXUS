@@ -1,0 +1,23 @@
+# Development and CI only
+.github/
+benchmark/
+docs/
+examples/
+skills/
+test/
+.tmp/
+.engram/
+test-output/
+src/
+scripts/
+
+# Local/runtime state
+learning-context.config.json
+
+# Build/tooling metadata not required at runtime package install
+tsconfig.json
+tsconfig.build.json
+AGENTS.md
+ROADMAP.md
+VERSIONING.md
+README.LEARN.md

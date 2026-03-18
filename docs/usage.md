@@ -187,12 +187,14 @@ For a publishable runtime build:
 ```bash
 npm run build
 npm run build:smoke
+npm run pack:check
 ```
 
 Concept:
 
 - `typecheck` = strict gate for the subset we already hardened
 - `build` = emits `dist/` from the current runtime so CI and future packaging can run a compiled CLI
+- `pack:check` = verifies `npm pack` metadata includes required publishable assets (`package.json`, `README.md`, `dist/cli.js`)
 
 That is the honest migration strategy:
 

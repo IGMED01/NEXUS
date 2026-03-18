@@ -272,6 +272,7 @@ Useful commands:
 ```bash
 npm run build
 npm run build:smoke
+npm run pack:check
 npm run release:check
 ```
 
@@ -279,6 +280,7 @@ Conceptually:
 
 - **typecheck** = where we already enforce stronger contracts
 - **build** = publishable runtime output for packaging and CI smoke tests
+- **pack:check** = validates `npm pack` includes required package assets before publication work
 
 The local developer entrypoint stays `src/cli.js` for now. The `dist/` build is the bridge toward a later full `.ts` migration, not a fake claim that migration is already done.
 

@@ -17,6 +17,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Notion sync now retries alternate page-id formats (UUID and compact 32-hex) when Notion returns `Invalid request URL`.
 - Fixed Notion append transport to use `PATCH /blocks/{page_id}/children` (was `POST`), matching the official Notion API contract.
 - Notion sync now renders markdown-like note content as native Notion blocks (`heading_*`, `bulleted_list_item`, `numbered_list_item`, `paragraph`) so PR learnings are readable without raw markdown markers.
+- Added npm packaging gate (`npm run pack:check`) plus CI enforcement on Node 20 to verify tarball includes required publishable assets (`package.json`, `README.md`, `dist/cli.js`).
 
 ### Contracts
 - Added v1 compatibility fixtures/tests for all JSON CLI commands (`version`, `doctor`, `init`, `sync-knowledge`, `ingest-security`, `select`, `teach`, `readme`, `recall`, `remember`, `close`).
