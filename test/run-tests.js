@@ -571,6 +571,24 @@ run("workspace scanning collects repository chunks", async () => {
   assert.ok(result.payload.chunks.some((chunk) => chunk.source === "package.json"));
 });
 
+run("workspace scanning ignores .tmp directories to avoid local clone noise", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-ignore-tmp-"));
+
+  try {
+    await mkdir(path.join(tempRoot, ".tmp", "fresh-clone", "src"), { recursive: true });
+    await mkdir(path.join(tempRoot, "src"), { recursive: true });
+    await writeFile(path.join(tempRoot, ".tmp", "fresh-clone", "src", "noise.js"), "export {};\n", "utf8");
+    await writeFile(path.join(tempRoot, "src", "keep.js"), "export const keep = true;\n", "utf8");
+
+    const result = await loadWorkspaceChunks(tempRoot);
+
+    assert.equal(result.payload.chunks.some((chunk) => chunk.source.startsWith(".tmp/")), false);
+    assert.equal(result.payload.chunks.some((chunk) => chunk.source === "src/keep.js"), true);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 run("workspace scanning understands the TypeScript backend vertical", async () => {
   const result = await loadWorkspaceChunks("examples/typescript-backend");
 

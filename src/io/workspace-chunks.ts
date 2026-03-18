@@ -39,6 +39,7 @@ type SecurityPolicy = ReturnType<typeof resolveSecurityPolicy>;
 const IGNORED_DIRS = new Set([
   ".git",
   ".codex",
+  ".tmp",
   "node_modules",
   "dist",
   "build",
