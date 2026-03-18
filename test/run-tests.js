@@ -709,6 +709,10 @@ run("project config parses security policy overrides", () => {
   const parsed = parseProjectConfig(
     JSON.stringify({
       project: "demo",
+      memory: {
+        autoRecall: false,
+        autoRemember: true
+      },
       security: {
         ignoreSensitiveFiles: false,
         redactSensitiveContent: false,
@@ -720,6 +724,8 @@ run("project config parses security policy overrides", () => {
     "inline"
   );
 
+  assert.equal(parsed.memory.autoRecall, false);
+  assert.equal(parsed.memory.autoRemember, true);
   assert.equal(parsed.security.ignoreSensitiveFiles, false);
   assert.equal(parsed.security.redactSensitiveContent, false);
   assert.equal(parsed.security.ignoreGeneratedFiles, false);
@@ -1542,6 +1548,127 @@ run("cli teach consumes recalled Engram memory automatically", async () => {
   assert.equal(parsed.memoryRecall.queriesTried.length >= 1, true);
   assert.equal(seenQueries.length >= 1, true);
   assert.equal(parsed.selectedContext.some((chunk) => chunk.source.startsWith("engram://")), true);
+});
+
+run("cli teach can persist an automatic memory summary when enabled", async () => {
+  /** @type {Array<unknown>} */
+  const saveCalls = [];
+  const fakeClient = {
+    async recallContext() {
+      throw new Error("not used");
+    },
+    async searchMemories(query, options) {
+      return {
+        mode: "search",
+        project: options?.project ?? "",
+        query,
+        stdout: "No memories found for that query.",
+        dataDir: ".engram"
+      };
+    },
+    async saveMemory(input) {
+      saveCalls.push(input);
+      return {
+        ...input,
+        stdout: "saved",
+        dataDir: ".engram"
+      };
+    },
+    async closeSession() {
+      throw new Error("not used");
+    }
+  };
+
+  const result = await runCli(
+    [
+      "teach",
+      "--input",
+      "examples/auth-context.json",
+      "--task",
+      "Improve auth middleware",
+      "--objective",
+      "Teach why validation runs before route handlers",
+      "--changed-files",
+      "src/auth/middleware.ts,test/auth/middleware.test.ts",
+      "--project",
+      "learning-context-system",
+      "--auto-remember",
+      "true",
+      "--format",
+      "json"
+    ],
+    {
+      engramClient: fakeClient
+    }
+  );
+
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(result.exitCode, 0);
+  assert.equal(saveCalls.length, 1);
+  assert.equal(parsed.autoMemory.autoRememberEnabled, true);
+  assert.equal(parsed.autoMemory.rememberAttempted, true);
+  assert.equal(parsed.autoMemory.rememberSaved, true);
+  assert.match(parsed.autoMemory.rememberTitle, /Teach loop/);
+});
+
+run("cli teach respects config memory.autoRecall=false without requiring --no-recall", async () => {
+  const configPath = path.join(process.cwd(), "test-auto-recall-config.json");
+  let called = false;
+  const fakeClient = {
+    async recallContext() {
+      throw new Error("not used");
+    },
+    async searchMemories() {
+      called = true;
+      throw new Error("not used");
+    },
+    async saveMemory() {
+      throw new Error("not used");
+    },
+    async closeSession() {
+      throw new Error("not used");
+    }
+  };
+
+  try {
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        project: "learning-context-system",
+        memory: {
+          autoRecall: false
+        }
+      }),
+      "utf8"
+    );
+
+    const result = await runCli(
+      [
+        "teach",
+        "--config",
+        configPath,
+        "--input",
+        "examples/auth-context.json",
+        "--task",
+        "Improve auth middleware",
+        "--objective",
+        "Teach why validation runs before route handlers",
+        "--format",
+        "json"
+      ],
+      {
+        engramClient: fakeClient
+      }
+    );
+
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(result.exitCode, 0);
+    assert.equal(called, false);
+    assert.equal(parsed.memoryRecall.status, "disabled");
+    assert.equal(parsed.autoMemory.autoRecallEnabled, false);
+  } finally {
+    await rm(configPath, { force: true });
+  }
 });
 
 run("cli teach emits a stable JSON contract and marks degraded recall", async () => {

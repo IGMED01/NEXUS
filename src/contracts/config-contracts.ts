@@ -24,6 +24,8 @@ export interface ProjectMemoryConfig {
   type: string;
   strictRecall: boolean;
   degradedRecall: boolean;
+  autoRecall: boolean;
+  autoRemember: boolean;
 }
 
 export interface ProjectEngramConfig {
@@ -148,7 +150,9 @@ export function defaultProjectConfig(): ProjectConfig {
       scope: "project",
       type: "",
       strictRecall: false,
-      degradedRecall: true
+      degradedRecall: true,
+      autoRecall: true,
+      autoRemember: false
     },
     engram: {
       binaryPath: "tools/engram/engram.exe",
@@ -249,7 +253,13 @@ export function validateProjectConfig(value: unknown): ProjectConfig {
         defaults.memory.strictRecall,
       degradedRecall:
         optionalBoolean(memory?.degradedRecall, "Project config.memory.degradedRecall") ??
-        defaults.memory.degradedRecall
+        defaults.memory.degradedRecall,
+      autoRecall:
+        optionalBoolean(memory?.autoRecall, "Project config.memory.autoRecall") ??
+        defaults.memory.autoRecall,
+      autoRemember:
+        optionalBoolean(memory?.autoRemember, "Project config.memory.autoRemember") ??
+        defaults.memory.autoRemember
     },
     engram: {
       binaryPath:

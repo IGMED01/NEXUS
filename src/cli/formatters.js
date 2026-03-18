@@ -24,7 +24,15 @@
 /**
  * @typedef {LearningPacket & {
  *   scanStats?: ScanStats | null,
- *   memoryRecall?: RenderMemoryRecallState
+ *   memoryRecall?: RenderMemoryRecallState,
+ *   autoMemory?: {
+ *     autoRecallEnabled: boolean,
+ *     autoRememberEnabled: boolean,
+ *     rememberAttempted: boolean,
+ *     rememberSaved: boolean,
+ *     rememberTitle: string,
+ *     rememberError: string
+ *   }
  * }} LearningPacketRenderResult
  */
 
@@ -201,6 +209,20 @@ export function formatLearningPacketAsText(packet, options = {}) {
 
   lines.push(`- Selected recalled chunks: ${packet.memoryRecall?.selectedChunks ?? 0}`);
   lines.push(`- Suppressed recalled chunks: ${packet.memoryRecall?.suppressedChunks ?? 0}`);
+  lines.push("");
+  lines.push("Auto memory:");
+  lines.push(`- Auto recall enabled: ${packet.autoMemory?.autoRecallEnabled ? "yes" : "no"}`);
+  lines.push(`- Auto remember enabled: ${packet.autoMemory?.autoRememberEnabled ? "yes" : "no"}`);
+  lines.push(`- Remember attempted: ${packet.autoMemory?.rememberAttempted ? "yes" : "no"}`);
+  lines.push(`- Remember saved: ${packet.autoMemory?.rememberSaved ? "yes" : "no"}`);
+
+  if (packet.autoMemory?.rememberTitle) {
+    lines.push(`- Remember title: ${packet.autoMemory.rememberTitle}`);
+  }
+
+  if (packet.autoMemory?.rememberError) {
+    lines.push(`- Remember error: ${packet.autoMemory.rememberError}`);
+  }
 
   if (debug) {
     lines.push("");
@@ -490,7 +512,7 @@ export function usageText() {
     "  node src/cli.js doctor [--config <file>] [--format json|text]",
     "  node src/cli.js init [--config <file>] [--force true|false] [--format json|text]",
     "  node src/cli.js select [--config <file>] (--input <file> | --workspace <dir>) --focus <text> [--token-budget 350] [--max-chunks 6] [--min-score 0.25] [--debug] [--format json|text]",
-    "  node src/cli.js teach [--config <file>] (--input <file> | --workspace <dir>) --task <text> --objective <text> [--changed-files a,b] [--project <name>] [--recall-query <text>] [--memory-limit 3] [--memory-type <name>] [--memory-scope <name>] [--no-recall] [--strict-recall true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--token-budget 350] [--max-chunks 6] [--min-score 0.25] [--debug] [--format json|text]",
+    "  node src/cli.js teach [--config <file>] (--input <file> | --workspace <dir>) --task <text> --objective <text> [--changed-files a,b] [--project <name>] [--recall-query <text>] [--memory-limit 3] [--memory-type <name>] [--memory-scope <name>] [--auto-recall true|false] [--no-recall] [--strict-recall true|false] [--auto-remember true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--token-budget 350] [--max-chunks 6] [--min-score 0.25] [--debug] [--format json|text]",
     "  node src/cli.js readme [--config <file>] [--workspace <dir>] [--input <file>] [--focus <text>] [--task <text>] [--objective <text>] [--title <text>] [--output <file>] [--format json|text]",
     "  node src/cli.js recall [--config <file>] [--project <name>] [--query <text>] [--type <name>] [--scope <name>] [--limit 5] [--degraded-recall true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--debug] [--format json|text]",
     "  node src/cli.js remember [--config <file>] --title <text> (--content <text> | --message <text>) [--project <name>] [--type <name>] [--scope <name>] [--topic <key>] [--engram-bin <file>] [--engram-data-dir <dir>] [--format json|text]",
@@ -506,6 +528,8 @@ export function usageText() {
     "  learning-context.config.json is loaded automatically when present.",
     "  readme defaults to --workspace . when no input source is provided.",
     "  teach recalls Engram memories automatically unless you pass --no-recall.",
+    "  auto recall can be disabled globally with memory.autoRecall or per command with --auto-recall false.",
+    "  auto remember can be enabled with --auto-remember true or memory.autoRemember=true.",
     "  teach now tries multiple smarter recall queries before giving up.",
     "  recall can return a degraded empty result when Engram is unavailable and degraded mode is enabled.",
     "  --debug exposes score signals, suppression reasons, and recall details for playground debugging.",

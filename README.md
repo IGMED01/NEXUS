@@ -214,6 +214,7 @@ That file is the official place for:
 - default workspace
 - selection budgets
 - recall defaults
+- memory automation defaults (`memory.autoRecall`, `memory.autoRemember`)
 - Engram binary and data directory paths
 - scan safety defaults and per-project overrides
 

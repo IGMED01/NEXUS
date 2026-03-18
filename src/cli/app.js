@@ -9,7 +9,10 @@ import { writeTextFile } from "../io/text-file.js";
 import { loadWorkspaceChunks } from "../io/workspace-chunks.js";
 import { buildLearningPacket } from "../learning/mentor-loop.js";
 import { createEngramClient } from "../memory/engram-client.js";
-import { resolveTeachRecall } from "../memory/teach-recall.js";
+import {
+  buildTeachAutoRememberPayload,
+  resolveAutoTeachRecall
+} from "../memory/engram-auto-orchestrator.js";
 import { initProjectConfig, runProjectDoctor } from "../system/project-ops.js";
 import {
   formatDoctorResultAsText,
@@ -86,6 +89,14 @@ import {
  * @typedef {LearningPacket & {
  *   scanStats?: ScanStats,
  *   memoryRecall: RenderMemoryRecallState,
+ *   autoMemory?: {
+ *     autoRecallEnabled: boolean,
+ *     autoRememberEnabled: boolean,
+ *     rememberAttempted: boolean,
+ *     rememberSaved: boolean,
+ *     rememberTitle: string,
+ *     rememberError: string
+ *   },
  *   debug?: {
  *     selectedOrigins: Record<string, number>,
  *     suppressedOrigins: Record<string, number>,
@@ -345,6 +356,14 @@ function applyConfigDefaults(command, rawOptions, loadedConfig) {
 
   if (!options["degraded-recall"]) {
     options["degraded-recall"] = String(config.memory.degradedRecall);
+  }
+
+  if (!options["auto-recall"]) {
+    options["auto-recall"] = String(config.memory.autoRecall);
+  }
+
+  if (!options["auto-remember"]) {
+    options["auto-remember"] = String(config.memory.autoRemember);
   }
 
   if (!options["engram-bin"] && config.engram.binaryPath) {
@@ -716,21 +735,37 @@ export async function runCli(argv, dependencies = {}) {
   const changedFiles = listOption(options, "changed-files");
   const focus = options.focus ?? `${task} ${objective}`;
   const engram = getEngramClient(options, dependencies);
+  const memoryScope = options["memory-scope"] ?? "project";
+  const memoryType = options["memory-type"];
+  const noRecall = booleanOption(options, "no-recall", false);
+  const autoRecall = booleanOption(options, "auto-recall", loadedConfig.config.memory.autoRecall);
+  const strictRecall = booleanOption(
+    options,
+    "strict-recall",
+    loadedConfig.config.memory.strictRecall
+  );
+  const autoRemember = booleanOption(
+    options,
+    "auto-remember",
+    loadedConfig.config.memory.autoRemember
+  );
   const memoryLimit = assertNumberRules(numberOption(options, "memory-limit", 3), "memory-limit", {
     min: 1,
     integer: true
   });
-  const teachChunks = await resolveTeachRecall({
+  const teachChunks = await resolveAutoTeachRecall({
     task,
     objective,
     focus,
     changedFiles,
     project: options.project,
-    explicitQuery: options["no-recall"] === "true" ? "__disabled__" : options["recall-query"],
+    explicitQuery: options["recall-query"],
+    noRecall,
+    autoRecall,
     limit: memoryLimit,
-    scope: options["memory-scope"] ?? "project",
-    type: options["memory-type"],
-    strictRecall: booleanOption(options, "strict-recall", loadedConfig.config.memory.strictRecall),
+    scope: memoryScope,
+    type: memoryType,
+    strictRecall,
     baseChunks: payload.chunks,
     searchMemories: engram.searchMemories
   });
@@ -768,6 +803,37 @@ export async function runCli(argv, dependencies = {}) {
         : {})
     }
   });
+  packetWithMemory.autoMemory = {
+    autoRecallEnabled: teachChunks.autoRecallEnabled === true,
+    autoRememberEnabled: autoRemember,
+    rememberAttempted: false,
+    rememberSaved: false,
+    rememberTitle: "",
+    rememberError: ""
+  };
+
+  if (autoRemember) {
+    packetWithMemory.autoMemory.rememberAttempted = true;
+
+    try {
+      const rememberInput = buildTeachAutoRememberPayload({
+        task,
+        objective,
+        changedFiles,
+        selectedSources: packet.selectedContext.map((chunk) => chunk.source),
+        project: options.project,
+        recallState: packetWithMemory.memoryRecall,
+        memoryType,
+        memoryScope
+      });
+      await engram.saveMemory(rememberInput);
+      packetWithMemory.autoMemory.rememberSaved = true;
+      packetWithMemory.autoMemory.rememberTitle = rememberInput.title;
+    } catch (error) {
+      packetWithMemory.autoMemory.rememberError =
+        error instanceof Error ? error.message : String(error);
+    }
+  }
 
   if (debugEnabled) {
     packetWithMemory.debug = {
@@ -782,22 +848,34 @@ export async function runCli(argv, dependencies = {}) {
     stdout:
       format === "text"
         ? formatLearningPacketAsText(packetWithMemory, { debug: debugEnabled })
-        : serializeCommandResult(
-            "teach",
-            {
-              input: path,
-              ...packetWithMemory
-            },
-            format,
-            loadedConfig,
-            {
-              degraded: packetWithMemory.memoryRecall.degraded === true,
-              warnings:
-                packetWithMemory.memoryRecall.degraded && packetWithMemory.memoryRecall.error
-                  ? [packetWithMemory.memoryRecall.error]
-                  : [],
-              ...buildRuntimeMeta(startedAt, { debug: debugEnabled, scanStats: stats ?? null })
+        : (() => {
+            /** @type {string[]} */
+            const warnings = [];
+
+            if (packetWithMemory.memoryRecall.degraded && packetWithMemory.memoryRecall.error) {
+              warnings.push(packetWithMemory.memoryRecall.error);
             }
-          )
+
+            if (packetWithMemory.autoMemory?.rememberError) {
+              warnings.push(`Auto remember failed: ${packetWithMemory.autoMemory.rememberError}`);
+            }
+
+            return serializeCommandResult(
+              "teach",
+              {
+                input: path,
+                ...packetWithMemory
+              },
+              format,
+              loadedConfig,
+              {
+                degraded:
+                  packetWithMemory.memoryRecall.degraded === true ||
+                  Boolean(packetWithMemory.autoMemory?.rememberError),
+                warnings,
+                ...buildRuntimeMeta(startedAt, { debug: debugEnabled, scanStats: stats ?? null })
+              }
+            );
+          })()
   };
 }

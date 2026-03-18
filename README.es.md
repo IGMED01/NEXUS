@@ -184,6 +184,7 @@ Ese archivo es el lugar oficial para definir:
 - workspace por defecto
 - budgets de seleccion
 - defaults de recall
+- defaults de automatizacion de memoria (`memory.autoRecall`, `memory.autoRemember`)
 - rutas de Engram
 - defaults y overrides de seguridad del escaneo
 

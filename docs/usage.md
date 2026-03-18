@@ -80,6 +80,7 @@ Use that file for stable defaults such as:
 - workspace root
 - token budgets
 - memory limits
+- memory automation (`memory.autoRecall`, `memory.autoRemember`)
 - Engram paths
 - scan safety policy
 

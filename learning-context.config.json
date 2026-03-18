@@ -16,6 +16,8 @@
     "project": "learning-context-system",
     "limit": 3,
     "scope": "project",
+    "autoRecall": true,
+    "autoRemember": false,
     "strictRecall": false,
     "degradedRecall": true
   },

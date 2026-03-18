@@ -18,6 +18,7 @@ Use Engram as a durable memory layer while keeping this project responsible for 
 - `teach` already consumes recalled memory automatically
 - degraded mode exists when Engram fails
 - initial skill contract exists at `skills/engram-auto-orchestrator/SKILL.md` to standardize automatic recall/save behavior
+- initial runtime orchestration exists through `src/memory/engram-auto-orchestrator.js` with config-driven auto recall and optional auto remember
 
 ## Milestones
 
@@ -41,8 +42,8 @@ Use Engram as a durable memory layer while keeping this project responsible for 
 
 ### Milestone 4 - Skill-driven automation
 
-- wire skill rules to operational commands/scripts so automatic Engram usage is consistent
-- add tests that assert auto recall/save guardrails from the skill contract
+- [x] wire skill rules to operational commands/scripts so automatic Engram usage is consistent
+- [x] add tests that assert auto recall/save guardrails from the skill contract
 
 ## Done means
 
