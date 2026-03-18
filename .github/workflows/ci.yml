@@ -72,8 +72,16 @@ jobs:
           script: |
             const fs = require("node:fs");
             const path = require("node:path");
+            const { pathToFileURL } = require("node:url");
 
-            const marker = "<!-- security-pipeline-summary -->";
+            const summaryModuleUrl = pathToFileURL(
+              path.join(process.cwd(), "src", "ci", "security-pr-summary.js")
+            ).href;
+            const {
+              SECURITY_PIPELINE_SUMMARY_MARKER,
+              buildSecurityPipelineSummaryComment
+            } = await import(summaryModuleUrl);
+
             const chunksPath = path.join(process.cwd(), "test-output", "security-pipeline", "security-chunks.json");
             const teachPath = path.join(process.cwd(), "test-output", "security-pipeline", "security-teach.json");
 
@@ -84,19 +92,6 @@ jobs:
 
             const chunksPayload = JSON.parse(fs.readFileSync(chunksPath, "utf8"));
             const teachPayload = JSON.parse(fs.readFileSync(teachPath, "utf8"));
-            const chunks = Array.isArray(chunksPayload.chunks) ? chunksPayload.chunks : [];
-            const selectedTeachChunks = Array.isArray(teachPayload.selectedContext)
-              ? teachPayload.selectedContext.length
-              : 0;
-            const priorities = chunks
-              .map((chunk) => (typeof chunk.priority === "number" ? chunk.priority : 0))
-              .filter((value) => Number.isFinite(value));
-            const maxPriority = priorities.length ? Math.max(...priorities) : 0;
-            const qualityPassed =
-              chunks.length >= 1 &&
-              selectedTeachChunks >= 1 &&
-              maxPriority >= 0.84;
-            const qualityStatus = qualityPassed ? "PASS" : "FAIL";
 
             const issue_number = context.issue.number;
             const { owner, repo } = context.repo;
@@ -107,63 +102,17 @@ jobs:
               per_page: 100
             });
             const existing = comments.find(
-              (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker)
+              (comment) =>
+                comment.user?.type === "Bot" &&
+                comment.body?.includes(SECURITY_PIPELINE_SUMMARY_MARKER)
             );
-
-            const parseMetric = (body, label) => {
-              const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-              const pattern = new RegExp(`- ${escapedLabel}:\\s*(-?\\d+(?:\\.\\d+)?)`, "i");
-              const match = body.match(pattern);
-              if (!match) {
-                return null;
-              }
-              const value = Number(match[1]);
-              return Number.isFinite(value) ? value : null;
-            };
-
-            const previousMetrics = existing
-              ? {
-                  includedFindings: parseMetric(existing.body ?? "", "Included findings"),
-                  selectedTeachChunks: parseMetric(existing.body ?? "", "Selected teach chunks"),
-                  maxPriority: parseMetric(existing.body ?? "", "Max finding priority")
-                }
-              : null;
-
-            const formatDelta = (currentValue, previousValue, decimals) => {
-              if (!Number.isFinite(previousValue)) {
-                return "n/a";
-              }
-              const delta = currentValue - previousValue;
-              const rendered = delta.toFixed(decimals);
-              return delta > 0 ? `+${rendered}` : rendered;
-            };
-
-            const deltaLines = previousMetrics
-              ? [
-                  "- Delta vs previous comment:",
-                  `  - Included findings: ${formatDelta(chunks.length, previousMetrics.includedFindings, 0)}`,
-                  `  - Selected teach chunks: ${formatDelta(selectedTeachChunks, previousMetrics.selectedTeachChunks, 0)}`,
-                  `  - Max finding priority: ${formatDelta(maxPriority, previousMetrics.maxPriority, 3)}`
-                ]
-              : ["- Delta vs previous comment: baseline (first run on this PR)"];
-
-            const topFindings = chunks
-              .slice(0, 3)
-              .map((chunk) => `  - ${chunk.id} (priority=${(typeof chunk.priority === "number" ? chunk.priority : 0).toFixed(3)})`)
-              .join("\n") || "  - none";
-
-            const body = [
-              marker,
-              "## Security pipeline summary",
-              `- Node: ${process.env.NODE_VERSION}`,
-              `- Included findings: ${chunks.length}`,
-              `- Selected teach chunks: ${selectedTeachChunks}`,
-              `- Max finding priority: ${maxPriority.toFixed(3)}`,
-              `- Quality gate: ${qualityStatus} (minIncluded=1, minSelected=1, minPriority=0.84)`,
-              ...deltaLines,
-              "- Top findings:",
-              topFindings
-            ].join("\n");
+            const summary = buildSecurityPipelineSummaryComment({
+              nodeVersion: process.env.NODE_VERSION ?? "",
+              chunksPayload,
+              teachPayload,
+              previousCommentBody: existing?.body ?? ""
+            });
+            const body = summary.body;
 
             if (existing) {
               await github.rest.issues.updateComment({

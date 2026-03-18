@@ -15,6 +15,7 @@
   },
   "include": [
     "src/analysis/readme-generator.js",
+    "src/ci/security-pr-summary.js",
     "src/cli/app.js",
     "src/cli/arg-parser.ts",
     "src/cli/formatters.js",

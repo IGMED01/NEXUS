@@ -62,6 +62,7 @@ Expected:
   - max finding priority
   - delta vs previous CI comment (same PR)
   - gate status (`PASS`/`FAIL`)
+  - implementation source: `src/ci/security-pr-summary.js` (portable tests)
 
 ## 3) Memory safety operating rules
 

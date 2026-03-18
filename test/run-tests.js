@@ -32,6 +32,11 @@ import {
   normalizeProwlerStatusFilter,
   prowlerFindingsToChunkFile
 } from "../src/security/prowler-ingest.js";
+import {
+  SECURITY_PIPELINE_SUMMARY_MARKER,
+  buildSecurityPipelineSummaryComment,
+  parseSecuritySummaryMetric
+} from "../src/ci/security-pr-summary.js";
 
 const tests = [];
 const execFile = promisify(execFileCallback);
@@ -1526,6 +1531,76 @@ run("security pipeline quality gate fails when findings do not meet thresholds",
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
+});
+
+run("security PR summary builder emits baseline comment with stable marker", () => {
+  const summary = buildSecurityPipelineSummaryComment({
+    nodeVersion: "20",
+    chunksPayload: {
+      chunks: [
+        {
+          id: "finding-critical",
+          priority: 1
+        }
+      ]
+    },
+    teachPayload: {
+      selectedContext: [{}]
+    }
+  });
+
+  assert.match(summary.body, new RegExp(SECURITY_PIPELINE_SUMMARY_MARKER));
+  assert.match(summary.body, /Quality gate: PASS/);
+  assert.match(summary.body, /Delta vs previous comment: baseline/);
+  assert.equal(summary.metrics.includedFindings, 1);
+  assert.equal(summary.metrics.selectedTeachChunks, 1);
+  assert.equal(summary.metrics.maxPriority, 1);
+});
+
+run("security PR summary builder computes deltas against previous bot comment", () => {
+  const previous = buildSecurityPipelineSummaryComment({
+    nodeVersion: "20",
+    chunksPayload: {
+      chunks: [
+        {
+          id: "finding-critical",
+          priority: 0.9
+        }
+      ]
+    },
+    teachPayload: {
+      selectedContext: [{}]
+    }
+  });
+  const current = buildSecurityPipelineSummaryComment({
+    nodeVersion: "20",
+    chunksPayload: {
+      chunks: [
+        {
+          id: "finding-critical",
+          priority: 1
+        },
+        {
+          id: "finding-medium",
+          priority: 0.84
+        }
+      ]
+    },
+    teachPayload: {
+      selectedContext: [{}, {}]
+    },
+    previousCommentBody: previous.body
+  });
+
+  assert.match(current.body, /Included findings: 2/);
+  assert.match(current.body, /Selected teach chunks: 2/);
+  assert.match(current.body, /Max finding priority: 1.000/);
+  assert.match(current.body, /Delta vs previous comment:/);
+  assert.match(current.body, /Included findings: \+1/);
+  assert.match(current.body, /Selected teach chunks: \+1/);
+  assert.match(current.body, /Max finding priority: \+0.100/);
+  assert.equal(parseSecuritySummaryMetric(current.body, "Included findings"), 2);
+  assert.equal(parseSecuritySummaryMetric(current.body, "Unknown metric"), null);
 });
 
 run("readme generator infers concepts and reading order", async () => {
