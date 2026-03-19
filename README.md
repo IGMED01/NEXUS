@@ -200,6 +200,7 @@ You can still use parts of the system without Engram:
 - `select`
 - `readme`
 - `teach --no-recall`
+- `recall`, `remember`, `close` with local fallback store (`.lcs/local-memory-store.jsonl`)
 
 ## Quick start
 
@@ -233,6 +234,8 @@ That file is the official place for:
 - scan safety defaults and per-project overrides
 
 Cost control note: `teach` can auto-skip recall for low-signal requests (very short task/objective and no changed files). Add `--changed-files` or `--recall-query` when you want recall to run.
+
+Resilience note: memory commands use a local fallback store by default when Engram is unavailable. Disable it with `--local-memory-fallback false`.
 
 CLI flags still win over config values when both are present.
 

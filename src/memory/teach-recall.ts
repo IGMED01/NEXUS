@@ -177,6 +177,7 @@ export async function resolveTeachRecall(
   );
   let providerHadSuccess = false;
   let lastProviderError = "";
+  let providerFallbackWarning = "";
 
   try {
     for (const query of queryCandidates) {
@@ -200,6 +201,9 @@ export async function resolveTeachRecall(
           }
         );
         providerHadSuccess = true;
+        if (memoryResult && memoryResult.degraded === true) {
+          providerFallbackWarning = memoryResult.warning ?? "";
+        }
       } catch (error) {
         lastProviderError = errorMessage(error);
 
@@ -260,8 +264,8 @@ export async function resolveTeachRecall(
       memoryRecall: {
         enabled: true,
         status: memoryChunks.length ? "recalled" : "empty",
-        degraded: false,
-        reason: "",
+        degraded: Boolean(providerFallbackWarning),
+        reason: providerFallbackWarning ? "fallback-local" : "",
         query: winningQuery,
         queriesTried,
         matchedQueries,
@@ -271,7 +275,7 @@ export async function resolveTeachRecall(
         firstMatchIndex,
         selectedChunks: 0,
         suppressedChunks: 0,
-        error: ""
+        error: providerFallbackWarning
       }
     };
   } catch (error) {

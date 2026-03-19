@@ -493,6 +493,8 @@ Useful options:
 - `--memory-scope`: defaults to `project`
 - `--no-recall`: disables the feature
 - `--strict-recall`: fails the command if Engram recall fails instead of continuing without memory
+- `--local-memory-fallback`: when `true` (default), memory commands fall back to local `.lcs/local-memory-store.jsonl` if Engram fails
+- `--memory-fallback-file`: custom path for the local fallback memory store
 - `--debug`: prints ranking signals, suppression breakdown, and recall internals for inspection
 
 ## Input contract

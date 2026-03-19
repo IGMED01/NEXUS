@@ -161,6 +161,7 @@ Tambien podés usar partes del sistema sin Engram:
 - `select`
 - `readme`
 - `teach --no-recall`
+- `recall`, `remember`, `close` usando fallback local (`.lcs/local-memory-store.jsonl`)
 
 ## Inicio rapido
 
@@ -205,6 +206,8 @@ Ese archivo es el lugar oficial para definir:
 - defaults y overrides de seguridad del escaneo
 
 Nota de costo: `teach` puede saltear el recall automatico cuando la senal es baja (task/objective muy cortos y sin `--changed-files`). Si queres forzar recall, agrega `--changed-files` o `--recall-query`.
+
+Nota de resiliencia: los comandos de memoria usan fallback local por defecto cuando Engram no esta disponible. Para desactivarlo: `--local-memory-fallback false`.
 
 Si pasás flags en CLI, esos flags pisan el valor del config.
 

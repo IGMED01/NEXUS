@@ -21,6 +21,8 @@ import {
   createEngramClient,
   searchOutputToChunks
 } from "../src/memory/engram-client.js";
+import { createLocalMemoryStore } from "../src/memory/local-memory-store.js";
+import { createResilientMemoryClient } from "../src/memory/resilient-memory-client.js";
 import { buildTeachRecallQueries } from "../src/memory/recall-queries.js";
 import { resolveTeachRecall } from "../src/memory/teach-recall.js";
 import {
@@ -2146,6 +2148,94 @@ run("engram client wraps timeout errors and keeps stderr detail", async () => {
   );
 });
 
+run("local memory store saves and searches memories with engram-like output", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-local-memory-store-"));
+  const store = createLocalMemoryStore({
+    filePath: path.join(tempRoot, "memory-store.jsonl")
+  });
+
+  try {
+    await store.saveMemory({
+      title: "Auth validation order",
+      content: "Reject invalid tokens before route handlers.",
+      type: "decision",
+      project: "learning-context-system",
+      scope: "project"
+    });
+    await store.saveMemory({
+      title: "Rate-limit middleware",
+      content: "Throttle abusive IP ranges to protect auth endpoints.",
+      type: "architecture",
+      project: "learning-context-system",
+      scope: "project"
+    });
+
+    const result = await store.searchMemories("auth validation", {
+      project: "learning-context-system",
+      scope: "project",
+      limit: 5
+    });
+
+    assert.match(result.stdout, /Found 1 memories:/);
+    assert.match(result.stdout, /Auth validation order/);
+    const chunks = searchOutputToChunks(result.stdout, {
+      query: "auth validation",
+      project: "learning-context-system"
+    });
+    assert.equal(chunks.length, 1);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("resilient memory client falls back to local store when Engram search fails", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-resilient-memory-"));
+  const fallback = createLocalMemoryStore({
+    filePath: path.join(tempRoot, "memory-store.jsonl")
+  });
+  await fallback.saveMemory({
+    title: "CLI integration memory",
+    content: "Durable memory now enters teach packets.",
+    type: "architecture",
+    project: "learning-context-system",
+    scope: "project"
+  });
+
+  const resilient = createResilientMemoryClient({
+    primary: {
+      config: { dataDir: ".engram" },
+      async recallContext() {
+        throw new Error("engram offline");
+      },
+      async searchMemories() {
+        throw new Error("engram offline");
+      },
+      async saveMemory() {
+        throw new Error("engram offline");
+      },
+      async closeSession() {
+        throw new Error("engram offline");
+      }
+    },
+    fallback
+  });
+
+  try {
+    const result = await resilient.searchMemories("cli integration", {
+      project: "learning-context-system",
+      scope: "project",
+      limit: 5
+    });
+
+    assert.equal(result.provider, "local");
+    assert.equal(result.degraded, true);
+    assert.match(result.warning ?? "", /local fallback/i);
+    assert.match(result.stdout ?? "", /CLI integration memory/);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 run("close summary builder captures summary, learning, and next step", () => {
   const content = buildCloseSummaryContent({
     summary: "Integrated Engram into the CLI",
@@ -2843,6 +2933,49 @@ run("cli recall returns a degraded contract when Engram is unavailable", async (
   assert.match(parsed.error, /engram offline/);
 });
 
+run("cli recall can use local fallback memory store when Engram binary is missing", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-recall-fallback-"));
+  const fallbackFile = path.join(tempRoot, "fallback-memory.jsonl");
+
+  try {
+    const store = createLocalMemoryStore({
+      filePath: fallbackFile
+    });
+    await store.saveMemory({
+      title: "Auth boundary memory",
+      content: "Validate token before business logic.",
+      type: "architecture",
+      project: "learning-context-system",
+      scope: "project"
+    });
+
+    const result = await runCli([
+      "recall",
+      "--query",
+      "auth boundary",
+      "--project",
+      "learning-context-system",
+      "--engram-bin",
+      "tools/engram/missing-engram.exe",
+      "--local-memory-fallback",
+      "true",
+      "--memory-fallback-file",
+      fallbackFile,
+      "--format",
+      "json"
+    ]);
+
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(result.exitCode, 0);
+    assert.equal(parsed.degraded, true);
+    assert.equal(parsed.provider, "local");
+    assert.match(parsed.warnings[0], /local fallback memory store/i);
+    assert.match(parsed.stdout, /Auth boundary memory/);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 run("cli recall degraded mode classifies timeout failures", async () => {
   const fakeClient = {
     config: {
@@ -3052,6 +3185,40 @@ run("cli remember can be blocked by safety gate when write plan is not approved"
     assert.equal(parsed.observability.safety.blocked, true);
   } finally {
     await rm(configPath, { force: true });
+  }
+});
+
+run("cli remember falls back to local store when Engram binary is missing", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-remember-fallback-"));
+  const fallbackFile = path.join(tempRoot, "fallback-memory.jsonl");
+
+  try {
+    const result = await runCli([
+      "remember",
+      "--title",
+      "Fallback memory write",
+      "--content",
+      "Store this even when engram is down.",
+      "--project",
+      "learning-context-system",
+      "--engram-bin",
+      "tools/engram/missing-engram.exe",
+      "--local-memory-fallback",
+      "true",
+      "--memory-fallback-file",
+      fallbackFile,
+      "--format",
+      "json"
+    ]);
+
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(result.exitCode, 0);
+    assert.equal(parsed.degraded, true);
+    assert.equal(parsed.provider, "local");
+    assert.match(parsed.stdout, /Saved local memory/i);
+    assert.equal(parsed.warnings.some((entry) => /local fallback/i.test(entry)), true);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
   }
 });
 

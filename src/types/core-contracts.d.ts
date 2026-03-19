@@ -233,6 +233,11 @@ export interface EngramSearchOptions {
 
 export interface EngramSearchResult {
   stdout: string;
+  degraded?: boolean;
+  warning?: string;
+  provider?: string;
+  failureKind?: string;
+  fixHint?: string;
 }
 
 export interface EngramResolvedConfig {

@@ -362,6 +362,8 @@ export function formatLearningPacketAsText(packet, options = {}) {
  *   limit?: number | null,
  *   stdout?: string,
  *   dataDir?: string,
+ *   filePath?: string,
+ *   provider?: string,
  *   degraded?: boolean,
  *   warning?: string,
  *   error?: string,
@@ -379,7 +381,9 @@ export function formatMemoryRecallAsText(result, options = {}) {
     `Type filter: ${result.type || "none"}`,
     `Scope: ${result.scope || "none"}`,
     `Limit: ${result.limit ?? "default"}`,
+    `Provider: ${result.provider || "engram"}`,
     `Data dir: ${result.dataDir || "unknown"}`,
+    `Fallback file: ${result.filePath || "none"}`,
     `Degraded: ${result.degraded ? "yes" : "no"}`,
     "",
     "Recovered memory:"
@@ -423,11 +427,16 @@ export function formatMemoryRecallAsText(result, options = {}) {
  *   scope?: string,
  *   topic?: string,
  *   stdout?: string,
- *   dataDir?: string
+ *   dataDir?: string,
+ *   filePath?: string,
+ *   provider?: string,
+ *   warning?: string,
+ *   error?: string
  * }} result
  * @param {string} heading
  */
 export function formatMemoryWriteAsText(result, heading) {
+  const provider = result.provider || "engram";
   const lines = [
     heading,
     `Title: ${result.title}`,
@@ -435,12 +444,24 @@ export function formatMemoryWriteAsText(result, heading) {
     `Type: ${result.type || "none"}`,
     `Scope: ${result.scope || "none"}`,
     `Topic: ${result.topic || "none"}`,
+    `Provider: ${provider}`,
     `Data dir: ${result.dataDir || "unknown"}`,
+    `Fallback file: ${result.filePath || "none"}`,
     "",
-    "Engram response:"
+    `${provider === "local" ? "Local memory response:" : "Engram response:"}`
   ];
 
   lines.push(result.stdout || "- no output");
+
+  if (result.warning) {
+    lines.push("");
+    lines.push(`Warning: ${result.warning}`);
+  }
+
+  if (result.error) {
+    lines.push(`Primary error: ${result.error}`);
+  }
+
   return lines.join("\n");
 }
 
@@ -595,11 +616,11 @@ export function usageText() {
     "  node src/cli.js sync-knowledge [--config <file>] --title <text> (--content <text> | --message <text>) [--project <name>] [--source <text>] [--tags a,b] [--notion-token <token>] [--notion-page-id <id>] [--plan-approved true] [--format json|text]",
     "  node src/cli.js ingest-security --input <prowler.json> [--status-filter all|non-pass|fail] [--max-findings 200] [--output <file>] [--plan-approved true] [--format json|text]",
     "  node src/cli.js select [--config <file>] (--input <file> | --workspace <dir>) --focus <text> [--token-budget 350] [--max-chunks 6] [--min-score 0.25] [--debug] [--format json|text]",
-    "  node src/cli.js teach [--config <file>] (--input <file> | --workspace <dir>) --task <text> --objective <text> [--changed-files a,b] [--project <name>] [--recall-query <text>] [--memory-limit 3] [--memory-type <name>] [--memory-scope <name>] [--auto-recall true|false] [--no-recall] [--strict-recall true|false] [--auto-remember true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--token-budget 350] [--max-chunks 6] [--min-score 0.25] [--debug] [--format json|text]",
+    "  node src/cli.js teach [--config <file>] (--input <file> | --workspace <dir>) --task <text> --objective <text> [--changed-files a,b] [--project <name>] [--recall-query <text>] [--memory-limit 3] [--memory-type <name>] [--memory-scope <name>] [--auto-recall true|false] [--no-recall] [--strict-recall true|false] [--auto-remember true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--token-budget 350] [--max-chunks 6] [--min-score 0.25] [--debug] [--format json|text]",
     "  node src/cli.js readme [--config <file>] [--workspace <dir>] [--input <file>] [--focus <text>] [--task <text>] [--objective <text>] [--title <text>] [--output <file>] [--plan-approved true] [--format json|text]",
-    "  node src/cli.js recall [--config <file>] [--project <name>] [--query <text>] [--type <name>] [--scope <name>] [--limit 5] [--degraded-recall true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--debug] [--format json|text]",
-    "  node src/cli.js remember [--config <file>] --title <text> (--content <text> | --message <text>) [--project <name>] [--type <name>] [--scope <name>] [--topic <key>] [--engram-bin <file>] [--engram-data-dir <dir>] [--plan-approved true] [--format json|text]",
-    "  node src/cli.js close [--config <file>] --summary <text> [--learned <text>] [--next <text>] [--title <text>] [--project <name>] [--type <name>] [--scope <name>] [--engram-bin <file>] [--engram-data-dir <dir>] [--plan-approved true] [--format json|text]",
+    "  node src/cli.js recall [--config <file>] [--project <name>] [--query <text>] [--type <name>] [--scope <name>] [--limit 5] [--degraded-recall true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--debug] [--format json|text]",
+    "  node src/cli.js remember [--config <file>] --title <text> (--content <text> | --message <text>) [--project <name>] [--type <name>] [--scope <name>] [--topic <key>] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--plan-approved true] [--format json|text]",
+    "  node src/cli.js close [--config <file>] --summary <text> [--learned <text>] [--next <text>] [--title <text>] [--project <name>] [--type <name>] [--scope <name>] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--plan-approved true] [--format json|text]",
     "",
     "Input file format:",
     '  { "chunks": [ { "id": "x", "source": "src/file.ts", "kind": "code", "content": "..." } ] }',
