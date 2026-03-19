@@ -10,6 +10,7 @@
     "clean": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true });\"",
     "build": "npm run clean && tsc --project tsconfig.build.json",
     "build:smoke": "node dist/cli.js doctor --format json",
+    "pack:check": "node scripts/check-npm-pack.js",
     "release:check": "node scripts/check-release-discipline.js",
     "dev:cli": "node src/cli.js",
     "dist:cli": "node dist/cli.js",

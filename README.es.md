@@ -244,6 +244,7 @@ Comandos utiles:
 ```bash
 npm run build
 npm run build:smoke
+npm run pack:check
 npm run release:check
 ```
 
@@ -251,6 +252,7 @@ La idea conceptual es:
 
 - **typecheck** = donde ya exigimos contratos mas duros
 - **build** = salida publicable para CI y futura distribucion
+- **pack:check** = valida que `npm pack` incluya los artefactos minimos requeridos para publicacion
 
 El entrypoint de desarrollo sigue siendo `src/cli.js`. El build `dist/` es el puente hacia una migracion total, no una excusa para fingir que ya llegamos.
 

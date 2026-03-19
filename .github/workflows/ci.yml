@@ -73,6 +73,10 @@ jobs:
       - name: Smoke test dist CLI
         run: npm run build:smoke
 
+      - name: Run npm pack gate
+        if: matrix.node-version == 20
+        run: npm run pack:check
+
       - name: Run release discipline gate
         run: npm run release:check
 
