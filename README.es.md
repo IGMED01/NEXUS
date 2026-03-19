@@ -202,12 +202,18 @@ Ese archivo es el lugar oficial para definir:
 - budgets de seleccion
 - defaults de recall
 - defaults de automatizacion de memoria (`memory.autoRecall`, `memory.autoRemember`)
+- modo de backend de memoria (`memory.backend`: `resilient`, `engram-only`, `local-only`)
 - rutas de Engram
 - defaults y overrides de seguridad del escaneo
 
 Nota de costo: `teach` puede saltear el recall automatico cuando la senal es baja (task/objective muy cortos y sin `--changed-files`). Si queres forzar recall, agrega `--changed-files` o `--recall-query`.
 
 Nota de resiliencia: los comandos de memoria usan fallback local por defecto cuando Engram no esta disponible. Para desactivarlo: `--local-memory-fallback false`.
+
+Nota de backend: podes fijar `memory.backend` (o `--memory-backend`) para elegir modo de ejecucion:
+- `resilient` = Engram primario + fallback local
+- `engram-only` = solo Engram
+- `local-only` = solo store local
 
 Si pasás flags en CLI, esos flags pisan el valor del config.
 

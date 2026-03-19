@@ -230,12 +230,18 @@ That file is the official place for:
 - selection budgets
 - recall defaults
 - memory automation defaults (`memory.autoRecall`, `memory.autoRemember`)
+- memory backend defaults (`memory.backend`: `resilient`, `engram-only`, `local-only`)
 - Engram binary and data directory paths
 - scan safety defaults and per-project overrides
 
 Cost control note: `teach` can auto-skip recall for low-signal requests (very short task/objective and no changed files). Add `--changed-files` or `--recall-query` when you want recall to run.
 
 Resilience note: memory commands use a local fallback store by default when Engram is unavailable. Disable it with `--local-memory-fallback false`.
+
+Backend note: set `memory.backend` (or `--memory-backend`) to choose runtime mode:
+- `resilient` = Engram primary + local fallback
+- `engram-only` = only Engram
+- `local-only` = only local file store
 
 CLI flags still win over config values when both are present.
 

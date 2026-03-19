@@ -16,6 +16,7 @@
     "project": "learning-context-system",
     "limit": 3,
     "scope": "project",
+    "backend": "resilient",
     "autoRecall": true,
     "autoRemember": false,
     "strictRecall": false,

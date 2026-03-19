@@ -89,6 +89,7 @@ Use that file for stable defaults such as:
 - token budgets
 - memory limits
 - memory automation (`memory.autoRecall`, `memory.autoRemember`)
+- memory backend strategy (`memory.backend`: `resilient`, `engram-only`, `local-only`)
 - Engram paths
 - scan safety policy
 - scan noise policy (`scan.ignoreDirs`)
@@ -103,6 +104,12 @@ Concept:
 - **CLI flags** = per-run override
 
 That is more production-friendly than relying on long repeated command lines.
+
+Memory backend modes:
+
+- `resilient` (default): Engram primary + local fallback file
+- `engram-only`: only Engram (no fallback)
+- `local-only`: only local fallback file (no Engram calls)
 
 ## Command 0: Check local setup
 

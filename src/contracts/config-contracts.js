@@ -31,6 +31,7 @@
  *   limit: number,
  *   scope: string,
  *   type: string,
+ *   backend: "resilient" | "engram-only" | "local-only",
  *   strictRecall: boolean,
  *   degradedRecall: boolean,
  *   autoRecall: boolean,
@@ -214,6 +215,7 @@ export function defaultProjectConfig() {
       limit: 3,
       scope: "project",
       type: "",
+      backend: "resilient",
       strictRecall: false,
       degradedRecall: true,
       autoRecall: true,
@@ -297,6 +299,17 @@ export function validateProjectConfig(value) {
     fail("Project config.output.defaultFormat must be 'text' or 'json'.");
   }
 
+  const memoryBackend = optionalString(memory?.backend, "Project config.memory.backend");
+
+  if (
+    memoryBackend !== undefined &&
+    memoryBackend !== "resilient" &&
+    memoryBackend !== "engram-only" &&
+    memoryBackend !== "local-only"
+  ) {
+    fail("Project config.memory.backend must be 'resilient', 'engram-only', or 'local-only'.");
+  }
+
   return {
     schemaVersion:
       optionalString(config.schemaVersion, "Project config.schemaVersion") ??
@@ -349,6 +362,7 @@ export function validateProjectConfig(value) {
       type:
         optionalString(memory?.type, "Project config.memory.type") ??
         defaults.memory.type,
+      backend: memoryBackend ?? defaults.memory.backend,
       strictRecall:
         optionalBoolean(memory?.strictRecall, "Project config.memory.strictRecall") ??
         defaults.memory.strictRecall,

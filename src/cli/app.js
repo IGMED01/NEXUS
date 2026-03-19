@@ -59,6 +59,10 @@ import {
  */
 
 /**
+ * @typedef {"resilient" | "engram-only" | "local-only"} MemoryBackendMode
+ */
+
+/**
  * @typedef {Awaited<ReturnType<typeof loadProjectConfig>>} LoadedConfigInfo
  */
 
@@ -86,7 +90,7 @@ import {
 
 /**
  * @typedef {{
- *   config?: { dataDir?: string },
+ *   config?: { dataDir?: string, filePath?: string },
  *   recallContext: (project?: string) => Promise<Record<string, unknown> & { stdout?: string }>,
  *   searchMemories: (
  *     query: string,
@@ -420,6 +424,24 @@ function getContentOption(options) {
 }
 
 /**
+ * @param {string | undefined} value
+ * @returns {MemoryBackendMode}
+ */
+function parseMemoryBackendMode(value) {
+  if (!value || value === "true") {
+    return "resilient";
+  }
+
+  if (value === "resilient" || value === "engram-only" || value === "local-only") {
+    return value;
+  }
+
+  throw new Error(
+    "Option --memory-backend must be one of: resilient, engram-only, local-only."
+  );
+}
+
+/**
  * @param {CliOptions} options
  * @param {AppDependencies} dependencies
  * @returns {MemoryClientLike}
@@ -454,18 +476,33 @@ function getLocalMemoryClient(options, dependencies) {
  * @param {AppDependencies} dependencies
  */
 function getMemoryClient(options, dependencies) {
-  if (dependencies.engramClient) {
+  const backendMode = parseMemoryBackendMode(options["memory-backend"]);
+
+  if (backendMode !== "local-only" && dependencies.engramClient && !dependencies.localMemoryClient) {
     return dependencies.engramClient;
   }
 
+  if (backendMode === "local-only") {
+    return getLocalMemoryClient(options, dependencies);
+  }
+
   const primary = getEngramClient(options, dependencies);
+
+  if (backendMode === "engram-only") {
+    return primary;
+  }
+
   const fallback = getLocalMemoryClient(options, dependencies);
   const fallbackEnabled = booleanOption(options, "local-memory-fallback", true);
+
+  if (!fallbackEnabled) {
+    return primary;
+  }
 
   return createResilientMemoryClient({
     primary,
     fallback,
-    enabled: fallbackEnabled
+    enabled: true
   });
 }
 
@@ -715,6 +752,10 @@ function applyConfigDefaults(command, rawOptions, loadedConfig) {
     options["local-memory-fallback"] = "true";
   }
 
+  if (!options["memory-backend"]) {
+    options["memory-backend"] = config.memory.backend || "resilient";
+  }
+
   if (!options.format && config.output.defaultFormat) {
     options.format = config.output.defaultFormat;
   }
@@ -732,16 +773,24 @@ function applyConfigDefaults(command, rawOptions, loadedConfig) {
 }
 
 /**
- * @param {MemoryClientLike} engram
- * @param {{ query?: string, project?: string, type?: string, scope?: string, limit?: number }} input
+ * @param {MemoryClientLike} memoryClient
+ * @param {{
+ *   query?: string,
+ *   project?: string,
+ *   type?: string,
+ *   scope?: string,
+ *   limit?: number,
+ *   provider?: "engram" | "local"
+ * }} input
  * @param {unknown} error
  * @returns {RecallCommandResult}
  */
-function buildDegradedRecallResult(engram, input, error) {
+function buildDegradedRecallResult(memoryClient, input, error) {
   const message = error instanceof Error ? error.message : String(error);
   const failureKind = classifyMemoryFailure(error);
   const fixHint = memoryFailureFixHint(failureKind);
-  const warning = `Engram unavailable; returning an empty recall result in degraded mode (${failureKind}).`;
+  const provider = input.provider ?? "engram";
+  const warning = `Memory backend '${provider}' unavailable; returning an empty recall result in degraded mode (${failureKind}).`;
 
   return {
     mode: input.query ? "search" : "context",
@@ -752,7 +801,9 @@ function buildDegradedRecallResult(engram, input, error) {
     limit: input.limit ?? null,
     stdout: "",
     stderr: "",
-    dataDir: engram.config?.dataDir ?? "",
+    dataDir: memoryClient.config?.dataDir ?? "",
+    filePath: memoryClient.config?.filePath,
+    provider,
     degraded: true,
     warning,
     error: message,
@@ -1057,7 +1108,7 @@ export async function runCli(argv, dependencies = {}) {
   }
 
   if (command === "recall") {
-    const engram = getEngramClient(options, dependencies);
+    const memoryBackend = parseMemoryBackendMode(options["memory-backend"]);
     const memoryClient = getMemoryClient(options, dependencies);
     const project = options.project;
     const query = options.query;
@@ -1103,13 +1154,14 @@ export async function runCli(argv, dependencies = {}) {
 
       degraded = true;
       result = buildDegradedRecallResult(
-        engram,
+        memoryClient,
         {
           query,
           project,
           type,
           scope,
-          limit
+          limit,
+          provider: memoryBackend === "local-only" ? "local" : "engram"
         },
         error
       );

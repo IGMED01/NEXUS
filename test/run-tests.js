@@ -989,7 +989,8 @@ run("project config parses security policy overrides", () => {
       project: "demo",
       memory: {
         autoRecall: false,
-        autoRemember: true
+        autoRemember: true,
+        backend: "engram-only"
       },
       security: {
         ignoreSensitiveFiles: false,
@@ -1012,6 +1013,7 @@ run("project config parses security policy overrides", () => {
 
   assert.equal(parsed.memory.autoRecall, false);
   assert.equal(parsed.memory.autoRemember, true);
+  assert.equal(parsed.memory.backend, "engram-only");
   assert.equal(parsed.security.ignoreSensitiveFiles, false);
   assert.equal(parsed.security.redactSensitiveContent, false);
   assert.equal(parsed.security.ignoreGeneratedFiles, false);
@@ -1021,6 +1023,21 @@ run("project config parses security policy overrides", () => {
   assert.equal(parsed.safety.requirePlanForWrite, true);
   assert.deepEqual(parsed.safety.allowedScopePaths, ["src/auth", "docs"]);
   assert.equal(parsed.safety.maxTokenBudget, 420);
+});
+
+run("project config rejects unsupported memory backend values", () => {
+  assert.throws(
+    () =>
+      parseProjectConfig(
+        JSON.stringify({
+          memory: {
+            backend: "redis-cluster"
+          }
+        }),
+        "inline"
+      ),
+    /memory\.backend must be 'resilient', 'engram-only', or 'local-only'/i
+  );
 });
 
 run("v1 contract fixture exists for every JSON CLI command", async () => {
@@ -1136,6 +1153,7 @@ run("init creates config with a stable project id from package name", async () =
     assert.equal(result.project, "example-learning-repo");
     assert.equal(parsed.project, "example-learning-repo");
     assert.equal(parsed.workspace, ".");
+    assert.equal(parsed.memory.backend, "resilient");
     assert.equal(parsed.security.ignoreSensitiveFiles, true);
     assert.equal(parsed.security.redactSensitiveContent, true);
   } finally {
@@ -1192,6 +1210,7 @@ run("doctor reports missing dependencies as actionable warnings", async () => {
     const npmCheck = result.checks.find((check) => check.id === "npm");
     const scanSafetyCheck = result.checks.find((check) => check.id === "scan-safety");
     const taskSafetyCheck = result.checks.find((check) => check.id === "task-safety-gate");
+    const memoryBackendCheck = result.checks.find((check) => check.id === "memory-backend");
 
     assert.ok(dependencyCheck);
     assert.equal(dependencyCheck.status, "warn");
@@ -1203,6 +1222,9 @@ run("doctor reports missing dependencies as actionable warnings", async () => {
     assert.ok(taskSafetyCheck);
     assert.equal(taskSafetyCheck.status, "warn");
     assert.match(taskSafetyCheck.fix, /requirePlanForWrite/i);
+    assert.ok(memoryBackendCheck);
+    assert.equal(memoryBackendCheck.status, "pass");
+    assert.match(memoryBackendCheck.detail, /engram primary \+ local fallback/i);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -1237,6 +1259,48 @@ run("doctor warns when security protections are relaxed", async () => {
     assert.ok(scanSafetyCheck);
     assert.equal(scanSafetyCheck.status, "warn");
     assert.match(scanSafetyCheck.fix, /ignoreSensitiveFiles/i);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("doctor reports local-only backend and skips Engram path warnings", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-doctor-local-only-"));
+
+  try {
+    await writeFile(
+      path.join(tempRoot, "package.json"),
+      JSON.stringify({ name: "doctor-local-only-fixture" }, null, 2),
+      "utf8"
+    );
+
+    const config = defaultProjectConfig();
+    config.project = "doctor-local-only-fixture";
+    config.workspace = ".";
+    config.memory.backend = "local-only";
+
+    const result = await runProjectDoctor({
+      cwd: tempRoot,
+      configInfo: {
+        found: true,
+        path: path.join(tempRoot, "learning-context.config.json"),
+        config
+      }
+    });
+
+    const backendCheck = result.checks.find((check) => check.id === "memory-backend");
+    const binaryCheck = result.checks.find((check) => check.id === "engram-binary");
+    const dataCheck = result.checks.find((check) => check.id === "engram-data");
+
+    assert.ok(backendCheck);
+    assert.equal(backendCheck.status, "warn");
+    assert.match(backendCheck.detail, /local-only/i);
+    assert.ok(binaryCheck);
+    assert.equal(binaryCheck.status, "pass");
+    assert.match(binaryCheck.detail, /skipped because memory\.backend='local-only'/i);
+    assert.ok(dataCheck);
+    assert.equal(dataCheck.status, "pass");
+    assert.match(dataCheck.detail, /skipped because memory\.backend='local-only'/i);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -2971,6 +3035,48 @@ run("cli recall can use local fallback memory store when Engram binary is missin
     assert.equal(parsed.provider, "local");
     assert.match(parsed.warnings[0], /local fallback memory store/i);
     assert.match(parsed.stdout, /Auth boundary memory/);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("cli recall supports local-only backend without calling Engram", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-recall-local-only-"));
+  const fallbackFile = path.join(tempRoot, "fallback-memory.jsonl");
+
+  try {
+    const store = createLocalMemoryStore({
+      filePath: fallbackFile
+    });
+    await store.saveMemory({
+      title: "Local-only memory",
+      content: "Use local backend when Engram is optional.",
+      type: "pattern",
+      project: "learning-context-system",
+      scope: "project"
+    });
+
+    const result = await runCli([
+      "recall",
+      "--query",
+      "local-only memory",
+      "--project",
+      "learning-context-system",
+      "--memory-backend",
+      "local-only",
+      "--engram-bin",
+      "tools/engram/missing-engram.exe",
+      "--memory-fallback-file",
+      fallbackFile,
+      "--format",
+      "json"
+    ]);
+
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(result.exitCode, 0);
+    assert.equal(parsed.degraded, false);
+    assert.equal(parsed.provider, "local");
+    assert.match(parsed.stdout, /Local-only memory/);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
