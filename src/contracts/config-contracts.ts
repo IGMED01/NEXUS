@@ -45,6 +45,12 @@ export interface ProjectScanConfig {
   ignoreDirs: string[];
 }
 
+export interface ProjectSafetyConfig {
+  requirePlanForWrite: boolean;
+  allowedScopePaths: string[];
+  maxTokenBudget: number;
+}
+
 export interface ProjectConfig {
   schemaVersion: string;
   project: string;
@@ -55,6 +61,7 @@ export interface ProjectConfig {
   engram: ProjectEngramConfig;
   security: ProjectSecurityConfig;
   scan: ProjectScanConfig;
+  safety: ProjectSafetyConfig;
 }
 
 function fail(message: string): never {
@@ -172,6 +179,11 @@ export function defaultProjectConfig(): ProjectConfig {
     },
     scan: {
       ignoreDirs: [".tmp", ".cache", "tmp", ".turbo", ".next", "out", ".lcs"]
+    },
+    safety: {
+      requirePlanForWrite: false,
+      allowedScopePaths: [],
+      maxTokenBudget: 700
     }
   };
 }
@@ -206,12 +218,17 @@ export function validateProjectConfig(value: unknown): ProjectConfig {
     assertObject(config.scan, "Project config.scan");
   }
 
+  if (config.safety !== undefined) {
+    assertObject(config.safety, "Project config.safety");
+  }
+
   const output = config.output;
   const selection = config.selection;
   const memory = config.memory;
   const engram = config.engram;
   const security = config.security;
   const scan = config.scan;
+  const safety = config.safety;
 
   const defaultFormat = optionalString(output?.defaultFormat, "Project config.output.defaultFormat");
 
@@ -302,6 +319,19 @@ export function validateProjectConfig(value: unknown): ProjectConfig {
       ignoreDirs:
         optionalStringArray(scan?.ignoreDirs, "Project config.scan.ignoreDirs") ??
         defaults.scan.ignoreDirs
+    },
+    safety: {
+      requirePlanForWrite:
+        optionalBoolean(safety?.requirePlanForWrite, "Project config.safety.requirePlanForWrite") ??
+        defaults.safety.requirePlanForWrite,
+      allowedScopePaths:
+        optionalStringArray(safety?.allowedScopePaths, "Project config.safety.allowedScopePaths") ??
+        defaults.safety.allowedScopePaths,
+      maxTokenBudget:
+        optionalNumber(safety?.maxTokenBudget, "Project config.safety.maxTokenBudget", {
+          min: 1,
+          integer: true
+        }) ?? defaults.safety.maxTokenBudget
     }
   };
 }

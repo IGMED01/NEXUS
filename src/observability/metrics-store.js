@@ -22,6 +22,11 @@ const DEFAULT_OBSERVABILITY_FILE = ".lcs/observability.json";
  *     selectedChunks?: number,
  *     suppressedChunks?: number,
  *     hit?: boolean
+ *   },
+ *   safety?: {
+ *     blocked?: boolean,
+ *     reason?: string,
+ *     preventedError?: boolean
  *   }
  * }} CommandMetric
  */
@@ -51,7 +56,9 @@ function defaultStore() {
     totals: {
       runs: 0,
       degradedRuns: 0,
-      durationMsTotal: 0
+      durationMsTotal: 0,
+      blockedRuns: 0,
+      preventedErrors: 0
     },
     commands: {},
     recall: {
@@ -66,6 +73,11 @@ function defaultStore() {
       selectedTotal: 0,
       suppressedTotal: 0,
       samples: 0
+    },
+    safety: {
+      blockedRuns: 0,
+      preventedErrors: 0,
+      byReason: {}
     }
   };
 }
@@ -87,6 +99,7 @@ function normalizedStore(record) {
   const totals = asRecord(record.totals);
   const recall = asRecord(record.recall);
   const selection = asRecord(record.selection);
+  const safety = asRecord(record.safety);
   const commands = asRecord(record.commands);
 
   return {
@@ -99,7 +112,9 @@ function normalizedStore(record) {
     totals: {
       runs: toFiniteNumber(totals.runs),
       degradedRuns: toFiniteNumber(totals.degradedRuns),
-      durationMsTotal: toFiniteNumber(totals.durationMsTotal)
+      durationMsTotal: toFiniteNumber(totals.durationMsTotal),
+      blockedRuns: toFiniteNumber(totals.blockedRuns),
+      preventedErrors: toFiniteNumber(totals.preventedErrors)
     },
     commands,
     recall: {
@@ -114,6 +129,11 @@ function normalizedStore(record) {
       selectedTotal: toFiniteNumber(selection.selectedTotal),
       suppressedTotal: toFiniteNumber(selection.suppressedTotal),
       samples: toFiniteNumber(selection.samples)
+    },
+    safety: {
+      blockedRuns: toFiniteNumber(safety.blockedRuns),
+      preventedErrors: toFiniteNumber(safety.preventedErrors),
+      byReason: asRecord(safety.byReason)
     }
   };
 }
@@ -170,10 +190,32 @@ function applyMetric(store, metric) {
   store.commands[command] = {
     runs: toFiniteNumber(commandStats.runs) + 1,
     degradedRuns: toFiniteNumber(commandStats.degradedRuns) + (degraded ? 1 : 0),
+    blockedRuns: toFiniteNumber(commandStats.blockedRuns),
     durationMsTotal: toFiniteNumber(commandStats.durationMsTotal) + durationMs,
     lastDurationMs: durationMs,
     lastRunAt: now
   };
+
+  if (metric.safety?.blocked) {
+    const safetySummary = store.safety;
+    const safetyReasonCounts = asRecord(safetySummary.byReason);
+    const safetyReason = metric.safety.reason?.trim() || "unknown";
+    const currentCommandStats = asRecord(store.commands[command]);
+
+    safetySummary.blockedRuns += 1;
+    safetySummary.byReason = safetyReasonCounts;
+    safetyReasonCounts[safetyReason] = toFiniteNumber(safetyReasonCounts[safetyReason]) + 1;
+    store.totals.blockedRuns += 1;
+    store.commands[command] = {
+      ...currentCommandStats,
+      blockedRuns: toFiniteNumber(currentCommandStats.blockedRuns) + 1
+    };
+  }
+
+  if (metric.safety?.preventedError) {
+    store.safety.preventedErrors += 1;
+    store.totals.preventedErrors += 1;
+  }
 
   const selectedCount = Math.max(0, Math.round(toFiniteNumber(metric.selection?.selectedCount)));
   const suppressedCount = Math.max(0, Math.round(toFiniteNumber(metric.selection?.suppressedCount)));
@@ -266,13 +308,16 @@ function commandSummary(commands) {
       const item = asRecord(raw);
       const runs = toFiniteNumber(item.runs);
       const degradedRuns = toFiniteNumber(item.degradedRuns);
+      const blockedRuns = toFiniteNumber(item.blockedRuns);
       const durationMsTotal = toFiniteNumber(item.durationMsTotal);
 
       return {
         command,
         runs,
         degradedRuns,
+        blockedRuns,
         degradedRate: runs ? round(degradedRuns / runs) : 0,
+        blockedRate: runs ? round(blockedRuns / runs) : 0,
         averageDurationMs: runs ? round(durationMsTotal / runs) : 0,
         lastDurationMs: toFiniteNumber(item.lastDurationMs),
         lastRunAt: typeof item.lastRunAt === "string" ? item.lastRunAt : ""
@@ -289,6 +334,7 @@ export async function getObservabilityReport(options = {}) {
   const totals = loaded.store.totals;
   const recall = loaded.store.recall;
   const selection = loaded.store.selection;
+  const safety = loaded.store.safety;
 
   return {
     schemaVersion: OBSERVABILITY_SCHEMA_VERSION,
@@ -299,7 +345,10 @@ export async function getObservabilityReport(options = {}) {
     totals: {
       runs: totals.runs,
       degradedRuns: totals.degradedRuns,
+      blockedRuns: totals.blockedRuns,
+      preventedErrors: totals.preventedErrors,
       degradedRate: totals.runs ? round(totals.degradedRuns / totals.runs) : 0,
+      blockedRate: totals.runs ? round(totals.blockedRuns / totals.runs) : 0,
       averageDurationMs: totals.runs ? round(totals.durationMsTotal / totals.runs) : 0
     },
     commands: commandSummary(loaded.store.commands),
@@ -320,6 +369,11 @@ export async function getObservabilityReport(options = {}) {
       averageSuppressed: selection.samples
         ? round(selection.suppressedTotal / selection.samples)
         : 0
+    },
+    safety: {
+      blockedRuns: safety.blockedRuns,
+      preventedErrors: safety.preventedErrors,
+      byReason: safety.byReason
     }
   };
 }

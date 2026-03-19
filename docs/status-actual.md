@@ -1,6 +1,6 @@
 ﻿# Estado actual del proyecto
 
-_Ultima actualizacion: 18 de marzo de 2026_
+_Ultima actualizacion: 19 de marzo de 2026_
 
 ## Resumen ejecutivo
 
@@ -34,6 +34,9 @@ El repositorio esta en estado **operativo serio** para uso open source:
 8. Sync de conocimiento de equipo:
    - comando `sync-knowledge` estable para Notion
    - automatizacion `sync:pr-learnings` para convertir PR mergeadas en notas durables de equipo (modo degradado si faltan secrets)
+9. Safety North Star baseline:
+   - gate pre-ejecucion (`config.safety`) para bloquear writes sin plan aprobado, paths fuera de scope y token budget excesivo
+   - observabilidad ahora registra bloqueos y errores prevenidos por razon (`safety.byReason`)
 
 ## Snapshot final de hoy
 

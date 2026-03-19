@@ -315,6 +315,9 @@ Los overrides de seguridad deben usarse con criterio:
 
 - `allowSensitivePaths` solo para fixtures o ejemplos que sabes que son seguros
 - `extraSensitivePathFragments` para marcar zonas sensibles propias del repo que nunca deberian entrar al contexto
+- `safety.requirePlanForWrite` + `--plan-approved true` para forzar disciplina Plan/Execute en comandos de escritura
+- `safety.allowedScopePaths` para bloquear cambios/salidas fuera de alcance
+- `safety.maxTokenBudget` para bloquear ejecuciones por encima del presupuesto de tokens
 
 La explicacion de seguridad y limites operativos esta en `docs/security-model.md`.
 

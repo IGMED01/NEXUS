@@ -998,6 +998,11 @@ run("project config parses security policy overrides", () => {
       },
       scan: {
         ignoreDirs: [".cache", "vendor-cache"]
+      },
+      safety: {
+        requirePlanForWrite: true,
+        allowedScopePaths: ["src/auth", "docs"],
+        maxTokenBudget: 420
       }
     }),
     "inline"
@@ -1011,6 +1016,9 @@ run("project config parses security policy overrides", () => {
   assert.deepEqual(parsed.security.allowSensitivePaths, [".env.example"]);
   assert.deepEqual(parsed.security.extraSensitivePathFragments, ["fixtures/private"]);
   assert.deepEqual(parsed.scan.ignoreDirs, [".cache", "vendor-cache"]);
+  assert.equal(parsed.safety.requirePlanForWrite, true);
+  assert.deepEqual(parsed.safety.allowedScopePaths, ["src/auth", "docs"]);
+  assert.equal(parsed.safety.maxTokenBudget, 420);
 });
 
 run("v1 contract fixture exists for every JSON CLI command", async () => {
@@ -1181,6 +1189,7 @@ run("doctor reports missing dependencies as actionable warnings", async () => {
     const dependencyCheck = result.checks.find((check) => check.id === "dependencies");
     const npmCheck = result.checks.find((check) => check.id === "npm");
     const scanSafetyCheck = result.checks.find((check) => check.id === "scan-safety");
+    const taskSafetyCheck = result.checks.find((check) => check.id === "task-safety-gate");
 
     assert.ok(dependencyCheck);
     assert.equal(dependencyCheck.status, "warn");
@@ -1189,6 +1198,9 @@ run("doctor reports missing dependencies as actionable warnings", async () => {
     assert.equal(npmCheck.status, "pass");
     assert.ok(scanSafetyCheck);
     assert.equal(scanSafetyCheck.status, "pass");
+    assert.ok(taskSafetyCheck);
+    assert.equal(taskSafetyCheck.status, "warn");
+    assert.match(taskSafetyCheck.fix, /requirePlanForWrite/i);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -2405,6 +2417,38 @@ run("observability store aggregates degraded runs and recall hit rate", async ()
   }
 });
 
+run("observability store tracks safety-blocked and prevented-error events", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-observability-safety-"));
+
+  try {
+    await recordCommandMetric(
+      {
+        command: "remember",
+        durationMs: 12,
+        degraded: true,
+        safety: {
+          blocked: true,
+          reason: "safety-gate",
+          preventedError: true
+        }
+      },
+      { cwd: tempRoot }
+    );
+
+    const report = await getObservabilityReport({ cwd: tempRoot });
+
+    assert.equal(report.totals.runs, 1);
+    assert.equal(report.totals.blockedRuns, 1);
+    assert.equal(report.totals.preventedErrors, 1);
+    assert.equal(report.safety.blockedRuns, 1);
+    assert.equal(report.safety.preventedErrors, 1);
+    assert.equal(report.safety.byReason["safety-gate"], 1);
+    assert.equal(report.commands[0]?.blockedRuns, 1);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 run("engram search output is converted into memory chunks", () => {
   const chunks = searchOutputToChunks(
     [
@@ -2948,6 +2992,130 @@ run("cli recall debug shows active filter state", async () => {
   assert.match(result.stdout, /Recall debug:/);
   assert.match(result.stdout, /Query provided: yes/);
   assert.match(result.stdout, /Scope filter active: yes/);
+});
+
+run("cli remember can be blocked by safety gate when write plan is not approved", async () => {
+  const configPath = path.join(process.cwd(), "test-safety-gate-config.json");
+  let called = false;
+  const fakeClient = {
+    async recallContext() {
+      throw new Error("not used");
+    },
+    async searchMemories() {
+      throw new Error("not used");
+    },
+    async saveMemory() {
+      called = true;
+      throw new Error("not used");
+    },
+    async closeSession() {
+      throw new Error("not used");
+    }
+  };
+
+  try {
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        project: "learning-context-system",
+        safety: {
+          requirePlanForWrite: true
+        }
+      }),
+      "utf8"
+    );
+
+    const result = await runCli(
+      [
+        "remember",
+        "--config",
+        configPath,
+        "--title",
+        "JWT order",
+        "--content",
+        "Validation first.",
+        "--format",
+        "json"
+      ],
+      {
+        engramClient: fakeClient
+      }
+    );
+
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(result.exitCode, 1);
+    assert.equal(called, false);
+    assert.equal(parsed.status, "error");
+    assert.equal(parsed.action, "blocked");
+    assert.equal(parsed.reason, "safety-gate");
+    assert.equal(parsed.details.some((detail) => /plan-approved/i.test(detail)), true);
+    assert.equal(parsed.observability.safety.blocked, true);
+  } finally {
+    await rm(configPath, { force: true });
+  }
+});
+
+run("cli teach can be blocked when token budget exceeds safety max", async () => {
+  const configPath = path.join(process.cwd(), "test-safety-budget-config.json");
+  const fakeClient = {
+    async recallContext() {
+      throw new Error("not used");
+    },
+    async searchMemories() {
+      throw new Error("not used");
+    },
+    async saveMemory() {
+      throw new Error("not used");
+    },
+    async closeSession() {
+      throw new Error("not used");
+    }
+  };
+
+  try {
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        project: "learning-context-system",
+        safety: {
+          maxTokenBudget: 120
+        }
+      }),
+      "utf8"
+    );
+
+    const result = await runCli(
+      [
+        "teach",
+        "--config",
+        configPath,
+        "--input",
+        "examples/auth-context.json",
+        "--task",
+        "Improve auth middleware",
+        "--objective",
+        "Teach why validation runs before route handlers",
+        "--token-budget",
+        "350",
+        "--format",
+        "json"
+      ],
+      {
+        engramClient: fakeClient
+      }
+    );
+
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(result.exitCode, 1);
+    assert.equal(parsed.status, "error");
+    assert.equal(parsed.command, "teach");
+    assert.equal(parsed.action, "blocked");
+    assert.equal(parsed.reason, "safety-gate");
+    assert.equal(parsed.details.some((detail) => /maxTokenBudget/i.test(detail)), true);
+    assert.equal(parsed.observability.safety.preventedError, true);
+  } finally {
+    await rm(configPath, { force: true });
+  }
 });
 
 run("cli remember saves a durable memory through Engram", async () => {
