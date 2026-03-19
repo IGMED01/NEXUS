@@ -12,6 +12,7 @@
     "build:smoke": "node dist/cli.js doctor --format json",
     "pack:check": "node scripts/check-npm-pack.js",
     "release:check": "node scripts/check-release-discipline.js",
+    "northstar:check": "node scripts/check-north-star.js",
     "dev:cli": "node src/cli.js",
     "dist:cli": "node dist/cli.js",
     "test": "node test/run-tests.js",

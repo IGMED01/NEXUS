@@ -16,6 +16,7 @@
   "include": [
     "src/analysis/readme-generator.js",
     "src/ci/pr-learnings.js",
+    "src/ci/north-star-gate.js",
     "src/ci/release-discipline.js",
     "src/ci/security-pr-summary.js",
     "src/cli/app.js",

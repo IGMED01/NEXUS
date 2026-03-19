@@ -52,6 +52,10 @@ import {
   evaluateReleaseDiscipline,
   formatReleaseDisciplineReport
 } from "../src/ci/release-discipline.js";
+import {
+  evaluateNorthStarGate,
+  formatNorthStarGateReport
+} from "../src/ci/north-star-gate.js";
 
 const tests = [];
 const execFile = promisify(execFileCallback);
@@ -2009,6 +2013,64 @@ run("release discipline evaluator fails when current release has no Contracts su
     result.errors.some((error) => /must include a '### Contracts' subsection/i.test(error)),
     true
   );
+});
+
+run("north star gate passes when prevented-error metrics meet thresholds", () => {
+  const result = evaluateNorthStarGate({
+    observability: {
+      found: true,
+      filePath: ".lcs/observability.json",
+      totals: {
+        runs: 120,
+        degradedRuns: 4,
+        blockedRuns: 12,
+        preventedErrors: 9,
+        degradedRate: 0.033
+      }
+    },
+    thresholds: {
+      minRuns: 100,
+      minBlockedRuns: 10,
+      minPreventedErrors: 8,
+      minPreventedErrorRate: 0.05,
+      maxDegradedRate: 0.1
+    }
+  });
+
+  assert.equal(result.passed, true);
+  assert.equal(result.failures.length, 0);
+  assert.equal(result.metrics.preventedErrorRate, 0.075);
+  assert.equal(result.metrics.blockedCoverage, 0.75);
+  assert.match(formatNorthStarGateReport(result), /passed: yes/);
+});
+
+run("north star gate fails when prevention signal is too low", () => {
+  const result = evaluateNorthStarGate({
+    observability: {
+      found: true,
+      filePath: ".lcs/observability.json",
+      totals: {
+        runs: 80,
+        degradedRuns: 12,
+        blockedRuns: 1,
+        preventedErrors: 0,
+        degradedRate: 0.15
+      }
+    },
+    thresholds: {
+      minRuns: 50,
+      minBlockedRuns: 1,
+      minPreventedErrors: 1,
+      minPreventedErrorRate: 0.01,
+      maxDegradedRate: 0.12
+    }
+  });
+
+  assert.equal(result.passed, false);
+  assert.equal(result.failures.some((line) => /preventedErrors=0/i.test(line)), true);
+  assert.equal(result.failures.some((line) => /preventedErrorRate=0/i.test(line)), true);
+  assert.equal(result.failures.some((line) => /degradedRate=0.15/i.test(line)), true);
+  assert.match(formatNorthStarGateReport(result), /passed: no/);
 });
 
 run("readme generator infers concepts and reading order", async () => {

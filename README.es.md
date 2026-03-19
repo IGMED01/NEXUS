@@ -231,6 +231,12 @@ Para generar el config base:
 npm run init:config
 ```
 
+Para ejecutar el gate de North Star (errores prevenidos por tarea):
+
+```bash
+npm run northstar:check
+```
+
 Campos importantes de `config.security`:
 
 - `ignoreSensitiveFiles`

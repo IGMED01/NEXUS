@@ -22,6 +22,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - `teach` now skips automatic Engram recall for low-signal tasks (very short task/objective with no `--changed-files`) to avoid unnecessary memory/token cost unless the user provides stronger signals (`--changed-files` or `--recall-query`).
 - Added resilient memory fallback path: when Engram is unavailable, `recall`/`remember`/`close` (and memory-backed `teach`) can continue via local store `.lcs/local-memory-store.jsonl` with explicit degraded metadata/warnings.
 - Added explicit memory backend strategy (`memory.backend` / `--memory-backend`) with `resilient` (default), `engram-only`, and `local-only` modes; `doctor` now reports backend mode and skips Engram path warnings when backend is `local-only`.
+- Added formal North Star quality gate (`npm run northstar:check`) backed by observability metrics to enforce minimum prevented-error signal in CI.
 
 ### Contracts
 - Added v1 compatibility fixtures/tests for all JSON CLI commands (`version`, `doctor`, `init`, `sync-knowledge`, `ingest-security`, `select`, `teach`, `readme`, `recall`, `remember`, `close`).

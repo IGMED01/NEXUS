@@ -306,6 +306,30 @@ Example:
 }
 ```
 
+## North Star quality gate (errors prevented per task)
+
+Run the formal gate over observability metrics:
+
+```bash
+npm run northstar:check
+```
+
+Default gate checks:
+
+1. minimum total runs exist
+2. minimum blocked safety runs exist
+3. minimum prevented errors exist
+4. prevented error rate (`preventedErrors / runs`) is above threshold
+5. prevented errors stay consistent (`preventedErrors <= blockedRuns`)
+
+Useful overrides:
+
+- `--min-runs 50`
+- `--min-blocked-runs 2`
+- `--min-prevented-errors 2`
+- `--min-prevented-error-rate 0.01`
+- `--max-degraded-rate 0.3` (optional hard cap)
+
 ## Command 1: Select useful context in the synthetic playground
 
 ```bash

@@ -259,6 +259,12 @@ To generate the base config file:
 npm run init:config
 ```
 
+To enforce the North Star quality gate (errors prevented per task):
+
+```bash
+npm run northstar:check
+```
+
 Key `config.security` fields:
 
 - `ignoreSensitiveFiles`
