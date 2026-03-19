@@ -18,6 +18,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Fixed Notion append transport to use `PATCH /blocks/{page_id}/children` (was `POST`), matching the official Notion API contract.
 - Notion sync now renders markdown-like note content as native Notion blocks (`heading_*`, `bulleted_list_item`, `numbered_list_item`, `paragraph`) so PR learnings are readable without raw markdown markers.
 - Added npm packaging gate (`npm run pack:check`) plus CI enforcement on Node 20 to verify tarball includes required publishable assets (`package.json`, `README.md`, `dist/cli.js`).
+- Added configurable task safety gate (`config.safety`) with pre-execution blocking for write-mode without plan approval, out-of-scope paths, and over-budget token windows; observability now tracks blocked/prevented events.
 
 ### Contracts
 - Added v1 compatibility fixtures/tests for all JSON CLI commands (`version`, `doctor`, `init`, `sync-knowledge`, `ingest-security`, `select`, `teach`, `readme`, `recall`, `remember`, `close`).

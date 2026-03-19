@@ -343,6 +343,9 @@ Security overrides are deliberately explicit:
 
 - use `allowSensitivePaths` only for known-safe fixtures such as examples
 - use `extraSensitivePathFragments` when a repo has custom sensitive areas that should never enter context
+- use `safety.requirePlanForWrite` + `--plan-approved true` to force Plan/Execute discipline in write mode
+- use `safety.allowedScopePaths` to block out-of-scope changed/output paths
+- use `safety.maxTokenBudget` to block over-budget token windows before execution
 
 Security model details live in [docs/security-model.md](docs/security-model.md).
 

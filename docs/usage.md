@@ -273,6 +273,32 @@ Example:
 }
 ```
 
+## Task safety gate (North Star support)
+
+`learning-context.config.json` also supports:
+
+- `safety.requirePlanForWrite`
+- `safety.allowedScopePaths`
+- `safety.maxTokenBudget`
+
+When enabled, the CLI blocks risky runs before execution:
+
+1. write commands without explicit plan approval (`--plan-approved true`)
+2. changed/output paths outside allowed scope
+3. token budgets above `safety.maxTokenBudget`
+
+Example:
+
+```json
+{
+  "safety": {
+    "requirePlanForWrite": true,
+    "allowedScopePaths": ["src", "docs"],
+    "maxTokenBudget": 500
+  }
+}
+```
+
 ## Command 1: Select useful context in the synthetic playground
 
 ```bash

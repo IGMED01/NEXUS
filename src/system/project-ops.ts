@@ -212,6 +212,21 @@ export async function runProjectDoctor(input: RunProjectDoctorInput): Promise<Do
       : ""
   });
 
+  const strictSafetyEnabled =
+    configInfo.config.safety.requirePlanForWrite === true &&
+    configInfo.config.safety.allowedScopePaths.length > 0;
+  checks.push({
+    id: "task-safety-gate",
+    label: "Task safety gate",
+    status: strictSafetyEnabled ? "pass" : "warn",
+    detail: strictSafetyEnabled
+      ? `Plan gate enabled and scope locked (${configInfo.config.safety.allowedScopePaths.join(", ")}).`
+      : "Safety gate is permissive (plan gate disabled or scope paths empty).",
+    fix: strictSafetyEnabled
+      ? ""
+      : "Set config.safety.requirePlanForWrite=true and define config.safety.allowedScopePaths for production workflows."
+  });
+
   const engramBinary = path.resolve(cwd, configInfo.config.engram.binaryPath || "tools/engram/engram.exe");
   const engramBinaryExists = await pathExists(engramBinary);
   checks.push({

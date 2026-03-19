@@ -34,5 +34,10 @@
   },
   "scan": {
     "ignoreDirs": [".tmp", ".cache", "tmp", ".turbo", ".next", "out", ".lcs"]
+  },
+  "safety": {
+    "requirePlanForWrite": false,
+    "allowedScopePaths": [],
+    "maxTokenBudget": 700
   }
 }

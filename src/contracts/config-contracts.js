@@ -63,6 +63,14 @@
 
 /**
  * @typedef {{
+ *   requirePlanForWrite: boolean,
+ *   allowedScopePaths: string[],
+ *   maxTokenBudget: number
+ * }} ProjectSafetyConfig
+ */
+
+/**
+ * @typedef {{
  *   schemaVersion: string,
  *   project: string,
   *   workspace: string,
@@ -71,7 +79,8 @@
  *   memory: ProjectMemoryConfig,
  *   engram: ProjectEngramConfig,
  *   security: ProjectSecurityConfig,
- *   scan: ProjectScanConfig
+ *   scan: ProjectScanConfig,
+ *   safety: ProjectSafetyConfig
  * }} ProjectConfig
  */
 
@@ -223,6 +232,11 @@ export function defaultProjectConfig() {
     },
     scan: {
       ignoreDirs: [".tmp", ".cache", "tmp", ".turbo", ".next", "out", ".lcs"]
+    },
+    safety: {
+      requirePlanForWrite: false,
+      allowedScopePaths: [],
+      maxTokenBudget: 700
     }
   };
 }
@@ -261,12 +275,17 @@ export function validateProjectConfig(value) {
     assertObject(config.scan, "Project config.scan");
   }
 
+  if (config.safety !== undefined) {
+    assertObject(config.safety, "Project config.safety");
+  }
+
   const output = /** @type {Record<string, unknown> | undefined} */ (config.output);
   const selection = /** @type {Record<string, unknown> | undefined} */ (config.selection);
   const memory = /** @type {Record<string, unknown> | undefined} */ (config.memory);
   const engram = /** @type {Record<string, unknown> | undefined} */ (config.engram);
   const security = /** @type {Record<string, unknown> | undefined} */ (config.security);
   const scan = /** @type {Record<string, unknown> | undefined} */ (config.scan);
+  const safety = /** @type {Record<string, unknown> | undefined} */ (config.safety);
 
   const defaultFormat = optionalString(output?.defaultFormat, "Project config.output.defaultFormat");
 
@@ -382,6 +401,23 @@ export function validateProjectConfig(value) {
       ignoreDirs:
         optionalStringArray(scan?.ignoreDirs, "Project config.scan.ignoreDirs") ??
         defaults.scan.ignoreDirs
+    },
+    safety: {
+      requirePlanForWrite:
+        optionalBoolean(
+          safety?.requirePlanForWrite,
+          "Project config.safety.requirePlanForWrite"
+        ) ?? defaults.safety.requirePlanForWrite,
+      allowedScopePaths:
+        optionalStringArray(
+          safety?.allowedScopePaths,
+          "Project config.safety.allowedScopePaths"
+        ) ?? defaults.safety.allowedScopePaths,
+      maxTokenBudget:
+        optionalNumber(safety?.maxTokenBudget, "Project config.safety.maxTokenBudget", {
+          min: 1,
+          integer: true
+        }) ?? defaults.safety.maxTokenBudget
     }
   };
 }

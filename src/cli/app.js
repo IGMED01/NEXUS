@@ -1,6 +1,7 @@
 ﻿// @ts-check
 
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import { buildCliJsonContract } from "../contracts/cli-contracts.js";
 import { defaultProjectConfig } from "../contracts/config-contracts.js";
 import { selectContextWindow } from "../context/noise-canceler.js";
@@ -211,6 +212,11 @@ function buildRuntimeMeta(startedAt, options = {}) {
  *     selectedChunks?: number,
  *     suppressedChunks?: number,
  *     hit?: boolean
+ *   },
+ *   safety?: {
+ *     blocked?: boolean,
+ *     reason?: string,
+ *     preventedError?: boolean
  *   }
  * }} [extras]
  */
@@ -220,7 +226,8 @@ function buildCommandMetric(command, startedAt, extras = {}) {
     durationMs: Math.max(0, Date.now() - startedAt),
     degraded: extras.degraded === true,
     selection: extras.selection ?? undefined,
-    recall: extras.recall ?? undefined
+    recall: extras.recall ?? undefined,
+    safety: extras.safety ?? undefined
   };
 }
 
@@ -246,6 +253,11 @@ function buildObservabilityEvent(metric) {
       selectedChunks: metric.recall?.selectedChunks ?? 0,
       suppressedChunks: metric.recall?.suppressedChunks ?? 0,
       hit: metric.recall?.hit === true
+    },
+    safety: {
+      blocked: metric.safety?.blocked === true,
+      reason: metric.safety?.reason ?? "",
+      preventedError: metric.safety?.preventedError === true
     }
   };
 }
@@ -397,6 +409,117 @@ function booleanOption(options, key, fallback = false) {
   }
 
   return value === "true";
+}
+
+/**
+ * @param {string} value
+ */
+function normalizeScopePath(value) {
+  return value
+    .replace(/\\/gu, "/")
+    .replace(/^\.\//u, "")
+    .replace(/\/+/gu, "/")
+    .replace(/\/$/u, "")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * @param {string} candidatePath
+ * @param {string[]} allowedScopePaths
+ */
+function isPathInScope(candidatePath, allowedScopePaths) {
+  if (!allowedScopePaths.length) {
+    return true;
+  }
+
+  const normalizedCandidate = normalizeScopePath(candidatePath);
+
+  if (!normalizedCandidate || normalizedCandidate.startsWith("..")) {
+    return false;
+  }
+
+  return allowedScopePaths.some((scopePath) => {
+    const normalizedScope = normalizeScopePath(scopePath);
+
+    if (!normalizedScope) {
+      return false;
+    }
+
+    return (
+      normalizedCandidate === normalizedScope ||
+      normalizedCandidate.startsWith(`${normalizedScope}/`)
+    );
+  });
+}
+
+/**
+ * @param {CliCommand} command
+ * @param {CliOptions} options
+ */
+function isWriteModeCommand(command, options) {
+  if (command === "sync-knowledge" || command === "remember" || command === "close") {
+    return true;
+  }
+
+  if (command === "readme" || command === "ingest-security") {
+    return Boolean(options.output);
+  }
+
+  return false;
+}
+
+/**
+ * @param {CliCommand} command
+ * @param {CliOptions} options
+ * @param {NumericOptions | null} numeric
+ * @param {LoadedConfigInfo} loadedConfig
+ * @returns {{ blocked: boolean, reason: string, details: string[] }}
+ */
+function evaluateSafetyGate(command, options, numeric, loadedConfig) {
+  const safety = loadedConfig.config.safety;
+  const details = [];
+  const maxTokenBudget = Math.max(1, Number(safety.maxTokenBudget || 0));
+
+  if (numeric && numeric.tokenBudget > maxTokenBudget) {
+    details.push(
+      `token-budget ${numeric.tokenBudget} exceeds safety.maxTokenBudget ${maxTokenBudget}.`
+    );
+  }
+
+  const writeMode = isWriteModeCommand(command, options);
+
+  if (writeMode && safety.requirePlanForWrite && options["plan-approved"] !== "true") {
+    details.push(
+      "write-mode is blocked: add --plan-approved true or disable safety.requirePlanForWrite."
+    );
+  }
+
+  const allowedScopePaths = Array.isArray(safety.allowedScopePaths)
+    ? safety.allowedScopePaths.filter(Boolean)
+    : [];
+
+  if (allowedScopePaths.length > 0) {
+    const changedFiles = listOption(options, "changed-files");
+    const outputPath = options.output ? path.relative(process.cwd(), path.resolve(options.output)) : "";
+
+    for (const changedFile of changedFiles) {
+      if (!isPathInScope(changedFile, allowedScopePaths)) {
+        details.push(`changed-file '${changedFile}' is outside safety.allowedScopePaths.`);
+        break;
+      }
+    }
+
+    if (outputPath && !isPathInScope(outputPath, allowedScopePaths)) {
+      details.push(`output path '${outputPath}' is outside safety.allowedScopePaths.`);
+    }
+  }
+
+  return {
+    blocked: details.length > 0,
+    reason: details.length > 0 ? "safety-gate" : "",
+    details
+  };
 }
 
 /**
@@ -707,6 +830,55 @@ export async function runCli(argv, dependencies = {}) {
       : "json";
   const format =
     options.format === "json" ? "json" : options.format === "text" ? "text" : defaultFormat;
+  const numericForSafety =
+    command === "select" || command === "readme" || command === "teach"
+      ? readNumericOptions(options)
+      : null;
+  const safetyGate = evaluateSafetyGate(command, options, numericForSafety, loadedConfig);
+
+  if (safetyGate.blocked) {
+    const metric = buildCommandMetric(command, startedAt, {
+      degraded: true,
+      safety: {
+        blocked: true,
+        reason: safetyGate.reason,
+        preventedError: true
+      }
+    });
+    await safeRecordCommandMetric(metric);
+    const lines = [
+      `Safety gate blocked command '${command}'.`,
+      ...safetyGate.details.map((detail) => `- ${detail}`)
+    ];
+
+    if (format === "json") {
+      return {
+        exitCode: 1,
+        stdout: serializeCommandResult(
+          command,
+          {
+            action: "blocked",
+            reason: safetyGate.reason,
+            details: safetyGate.details,
+            observability: buildObservabilityEvent(metric)
+          },
+          format,
+          loadedConfig,
+          {
+            status: "error",
+            degraded: true,
+            warnings: safetyGate.details,
+            ...buildRuntimeMeta(startedAt)
+          }
+        )
+      };
+    }
+
+    return {
+      exitCode: 1,
+      stderr: lines.join("\n")
+    };
+  }
 
   if (command === "sync-knowledge") {
     const notion = getNotionClient(options, dependencies);
@@ -964,7 +1136,7 @@ export async function runCli(argv, dependencies = {}) {
 
   const source = await loadChunkSource(command, options, loadedConfig);
   const { payload, path, stats } = source;
-  const numeric = readNumericOptions(options);
+  const numeric = numericForSafety ?? readNumericOptions(options);
 
   if (command === "select") {
     const focus = requireOption(options, "focus");
