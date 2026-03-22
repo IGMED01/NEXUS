@@ -1,6 +1,6 @@
 # Learning Context System
 
-Learning Context System is an experimental CLI for **coding with teaching, memory, and context control at the same time**.
+Learning Context System (LCS) is a CLI for **coding with teaching, memory, and context control in the same workflow**.
 
 > Spanish summary available in [README.es.md](README.es.md).
 
@@ -12,17 +12,15 @@ It does three things together:
 
 ## Status
 
-This repository is **experimental but serious**.
+This repository is actively maintained and usable for real project workflows.
 
-It is already usable as:
+Today it provides:
 
-- a local research CLI
-- a context-selection prototype
-- a teaching-oriented coding assistant scaffold
-- a durable-memory playground backed by Engram
-- an optional PR-to-Notion learnings sync flow after merges
-
-It is **not** yet a mature framework.
+- context selection with noise suppression (`select`)
+- teaching packet generation from real code context (`teach`)
+- durable memory recall/write through Engram with degraded-mode fallbacks (`recall`, `remember`, `close`)
+- versioned JSON contracts for CLI automation (`--format json`)
+- CI quality gates (tests, typecheck, build, benchmarks, security checks)
 
 ## What this project is trying to solve
 
@@ -33,7 +31,7 @@ It is **not** yet a mature framework.
 
 ## Resumen rapido en espanol
 
-Este proyecto es una CLI experimental para:
+Este proyecto es una CLI para:
 
 - filtrar contexto antes de usar un LLM
 - ensenar sobre el codigo mientras se trabaja
@@ -178,7 +176,7 @@ These projects are credited as architectural inspiration. They are not listed as
 - `VERSIONING.md`: package/tag/release alignment policy
 - `src/analysis/readme-generator.js`: generated learning README builder
 - `src/ci/pr-learnings.js`: merged-PR metadata to durable learning-note payload mapper
-- `src/context/noise-canceler.js`: prototype signal-over-noise selector
+- `src/context/noise-canceler.js`: signal-over-noise selector
 - `src/learning/mentor-loop.js`: learning packet builder
 - `src/memory/engram-client.js` / `src/memory/engram-client.ts`: local Engram adapter for recall and durable memory writes (JS runtime + TS build track)
 - `src/observability/metrics-store.js`: local command metrics store and aggregated observability report
@@ -200,6 +198,7 @@ You can still use parts of the system without Engram:
 - `select`
 - `readme`
 - `teach --no-recall`
+- `recall`, `remember`, `close` with local fallback store (`.lcs/local-memory-store.jsonl`)
 
 ## Quick start
 
@@ -218,6 +217,60 @@ npm run security:pipeline:example
 
 `security:pipeline:example` includes a default quality gate (`min-included-findings=1`, `min-selected-teach-chunks=1`, `min-priority=0.84`).
 
+## How to use LCS (end-to-end)
+
+Use this flow when you want to apply LCS in a real repository:
+
+1. Validate local setup.
+2. Select high-signal context.
+3. Build a teaching packet tied to changed files.
+4. Persist durable decisions in memory.
+
+### 1) Validate setup
+
+```bash
+node src/cli.js doctor --format json
+```
+
+### 2) Select context from workspace
+
+```bash
+node src/cli.js select \
+  --workspace . \
+  --focus "auth middleware validation order" \
+  --changed-files "src/auth/middleware.ts,test/auth/middleware.test.ts" \
+  --format json
+```
+
+### 3) Build teaching packet with recall
+
+```bash
+node src/cli.js teach \
+  --workspace . \
+  --task "Harden auth middleware" \
+  --objective "Teach request-boundary validation" \
+  --changed-files "src/auth/middleware.ts,test/auth/middleware.test.ts" \
+  --project learning-context-system \
+  --format json
+```
+
+### 4) Save durable learning
+
+```bash
+node src/cli.js remember \
+  --title "Auth validation order" \
+  --content "Validation runs before route handlers to fail fast and protect downstream code." \
+  --project learning-context-system \
+  --type decision \
+  --format json
+```
+
+For operator-level guidance and JSON contract details, use:
+
+- `docs/integration.md`
+- `docs/usage.md`
+- `docs/security-model.md`
+
 ## Project configuration
 
 The CLI now auto-loads `learning-context.config.json` when present.
@@ -229,8 +282,19 @@ That file is the official place for:
 - selection budgets
 - recall defaults
 - memory automation defaults (`memory.autoRecall`, `memory.autoRemember`)
+- memory backend defaults (`memory.backend`: `resilient`, `engram-only`, `local-only`)
 - Engram binary and data directory paths
 - scan safety defaults and per-project overrides
+- execution safety for low-signal workspace scans (`safety.requireExplicitFocusForWorkspaceScan`, `safety.minWorkspaceFocusLength`, `safety.blockDebugWithoutStrongFocus`)
+
+Cost control note: `teach` can auto-skip recall for low-signal requests (very short task/objective and no changed files). Add `--changed-files` or `--recall-query` when you want recall to run.
+
+Resilience note: memory commands use a local fallback store by default when Engram is unavailable. Disable it with `--local-memory-fallback false`.
+
+Backend note: set `memory.backend` (or `--memory-backend`) to choose runtime mode:
+- `resilient` = Engram primary + local fallback
+- `engram-only` = only Engram
+- `local-only` = only local file store
 
 CLI flags still win over config values when both are present.
 
@@ -246,6 +310,12 @@ To generate the base config file:
 
 ```bash
 npm run init:config
+```
+
+To enforce the North Star quality gate (errors prevented per task):
+
+```bash
+npm run northstar:check
 ```
 
 Key `config.security` fields:
@@ -423,7 +493,7 @@ The goal is not only to say "it feels better", but to show when behavior improve
 
 ## Initial direction
 
-The prototype is intentionally dependency-light and runs on plain Node so we can iterate even in a minimal local environment. The only external runtime it now leans on is a locally installed Engram binary for durable memory, and `teach` now uses that memory automatically before building the teaching packet with a smarter multi-query recall strategy.
+The runtime is intentionally dependency-light and runs on plain Node to keep local setup simple. The only external runtime dependency is a locally installed Engram binary for durable memory, and `teach` uses that memory automatically before building the teaching packet with a multi-query recall strategy.
 
 ## Roadmaps by area
 

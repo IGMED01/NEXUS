@@ -30,6 +30,7 @@ export interface ChunkDiagnostics {
   sourcePenalty: number;
   genericRunnerPenalty: number;
   implementationFit: number;
+  recallOriginBoost: number;
   narrativePenalty: number;
   redundancy: number;
   penalty: number;
@@ -68,6 +69,7 @@ export interface SelectionOptions {
   minScore?: number;
   sentenceBudget?: number;
   changedFiles?: string[];
+  recallReserveRatio?: number;
 }
 
 export interface ContextSelectionResult {
@@ -233,6 +235,11 @@ export interface EngramSearchOptions {
 
 export interface EngramSearchResult {
   stdout: string;
+  degraded?: boolean;
+  warning?: string;
+  provider?: string;
+  failureKind?: string;
+  fixHint?: string;
 }
 
 export interface EngramResolvedConfig {

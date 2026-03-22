@@ -1,6 +1,6 @@
 # Learning Context System - Resumen en espanol
 
-Learning Context System es una CLI experimental para **programar, ensenar y controlar contexto al mismo tiempo**.
+Learning Context System es una CLI para **programar, ensenar y controlar contexto al mismo tiempo**.
 
 ## Que hace este proyecto
 
@@ -110,19 +110,17 @@ Este repositorio fue implementado como trabajo original, pero deja explicitas la
 
 Estos proyectos aparecen como creditos e inspiracion arquitectonica. No deben figurar como contributors de este repo salvo que hagan commits aqui.
 
-## Que no es este proyecto
+## Estado del proyecto
 
-No es todavia:
+Hoy es una herramienta local usable y mantenida para flujos reales de trabajo.
 
-- un framework maduro
-- una plataforma multiagente cerrada
-- un producto terminado
+Incluye:
 
-Si es hoy:
-
-- un prototipo serio
-- una herramienta local usable
-- un experimento medible con benchmarks
+- seleccion de contexto con supresion de ruido
+- paquete pedagogico con `teach`
+- memoria durable con Engram y modo degradado
+- contratos JSON estables para automatizacion
+- gates de calidad en CI (tests, typecheck, build y benchmarks)
 
 ## Mapa rapido del repo
 
@@ -161,6 +159,7 @@ Tambien podés usar partes del sistema sin Engram:
 - `select`
 - `readme`
 - `teach --no-recall`
+- `recall`, `remember`, `close` usando fallback local (`.lcs/local-memory-store.jsonl`)
 
 ## Inicio rapido
 
@@ -201,8 +200,19 @@ Ese archivo es el lugar oficial para definir:
 - budgets de seleccion
 - defaults de recall
 - defaults de automatizacion de memoria (`memory.autoRecall`, `memory.autoRemember`)
+- modo de backend de memoria (`memory.backend`: `resilient`, `engram-only`, `local-only`)
 - rutas de Engram
 - defaults y overrides de seguridad del escaneo
+- seguridad de ejecucion para escaneos de workspace con baja senal (`safety.requireExplicitFocusForWorkspaceScan`, `safety.minWorkspaceFocusLength`, `safety.blockDebugWithoutStrongFocus`)
+
+Nota de costo: `teach` puede saltear el recall automatico cuando la senal es baja (task/objective muy cortos y sin `--changed-files`). Si queres forzar recall, agrega `--changed-files` o `--recall-query`.
+
+Nota de resiliencia: los comandos de memoria usan fallback local por defecto cuando Engram no esta disponible. Para desactivarlo: `--local-memory-fallback false`.
+
+Nota de backend: podes fijar `memory.backend` (o `--memory-backend`) para elegir modo de ejecucion:
+- `resilient` = Engram primario + fallback local
+- `engram-only` = solo Engram
+- `local-only` = solo store local
 
 Si pasás flags en CLI, esos flags pisan el valor del config.
 
@@ -218,6 +228,12 @@ Para generar el config base:
 
 ```bash
 npm run init:config
+```
+
+Para ejecutar el gate de North Star (errores prevenidos por tarea):
+
+```bash
+npm run northstar:check
 ```
 
 Campos importantes de `config.security`:

@@ -283,7 +283,7 @@ export async function runTeachCommand(input) {
       packetWithMemory.autoMemory.rememberRedactionCount = rememberInput.security.redactionCount;
       packetWithMemory.autoMemory.rememberSensitivePathCount =
         rememberInput.security.sensitivePathCount;
-      await engram.saveMemory({
+      const rememberResult = await engram.saveMemory({
         title: rememberInput.title,
         content: rememberInput.content,
         type: rememberInput.type,
@@ -292,6 +292,9 @@ export async function runTeachCommand(input) {
       });
       packetWithMemory.autoMemory.rememberSaved = true;
       packetWithMemory.autoMemory.rememberTitle = rememberInput.title;
+      if (rememberResult?.warning) {
+        packetWithMemory.autoMemory.rememberError = rememberResult.warning;
+      }
     } catch (error) {
       packetWithMemory.autoMemory.rememberError =
         error instanceof Error ? error.message : String(error);
@@ -313,8 +316,27 @@ export async function runTeachCommand(input) {
     warnings.push(packetWithMemory.memoryRecall.error);
   }
 
-  if (packetWithMemory.autoMemory?.rememberError) {
+  if (
+    packetWithMemory.memoryRecall.status === "skipped" &&
+    packetWithMemory.memoryRecall.reason === "low-signal-task"
+  ) {
+    warnings.push(
+      "Auto recall skipped: low-signal task. Add --changed-files or --recall-query to force memory recall."
+    );
+  }
+
+  if (
+    packetWithMemory.autoMemory?.rememberError &&
+    !packetWithMemory.autoMemory.rememberSaved
+  ) {
     warnings.push(`Auto remember failed: ${packetWithMemory.autoMemory.rememberError}`);
+  }
+
+  if (
+    packetWithMemory.autoMemory?.rememberSaved &&
+    packetWithMemory.autoMemory?.rememberError
+  ) {
+    warnings.push(`Auto remember fallback: ${packetWithMemory.autoMemory.rememberError}`);
   }
 
   if ((packetWithMemory.autoMemory?.rememberRedactionCount ?? 0) > 0) {
@@ -331,7 +353,10 @@ export async function runTeachCommand(input) {
 
   const degraded =
     packetWithMemory.memoryRecall.degraded === true ||
-    Boolean(packetWithMemory.autoMemory?.rememberError);
+    Boolean(
+      packetWithMemory.autoMemory?.rememberError &&
+        packetWithMemory.autoMemory.rememberSaved === false
+    );
   const observability = buildTeachObservability(packetWithMemory, Date.now() - startedAt, degraded);
 
   return {

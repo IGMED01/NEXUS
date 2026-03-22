@@ -16,6 +16,7 @@
   "include": [
     "src/analysis/readme-generator.js",
     "src/ci/pr-learnings.js",
+    "src/ci/north-star-gate.js",
     "src/ci/release-discipline.js",
     "src/ci/security-pr-summary.js",
     "src/cli/app.js",
@@ -34,7 +35,9 @@
     "src/learning/mentor-loop.js",
     "src/memory/engram-client.ts",
     "src/memory/engram-auto-orchestrator.ts",
+    "src/memory/local-memory-store.js",
     "src/memory/recall-queries.ts",
+    "src/memory/resilient-memory-client.js",
     "src/memory/teach-recall.ts",
     "src/security/secret-redaction.ts",
     "src/system/project-ops.ts",

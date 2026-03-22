@@ -103,7 +103,12 @@ function sanitizePathList(values, securityPolicy) {
  * @returns {Promise<TeachRecallResolution & { autoRecallEnabled: boolean }>}
  */
 export async function resolveAutoTeachRecall(input) {
-  const autoRecallEnabled = input.noRecall !== true && input.autoRecall !== false;
+  const canUseAutoRecall = input.noRecall !== true && input.autoRecall !== false;
+  const hasExplicitQuery = Boolean(input.explicitQuery && input.explicitQuery.trim().length > 0);
+  const changedFiles = (input.changedFiles ?? []).filter(Boolean);
+  const signalText = [input.task, input.objective, input.focus].filter(Boolean).join(" ").trim();
+  const lowSignalTask = !hasExplicitQuery && changedFiles.length === 0 && signalText.length < 72;
+  const autoRecallEnabled = canUseAutoRecall && !lowSignalTask;
 
   const result = await resolveTeachRecall({
     task: input.task,
@@ -119,6 +124,18 @@ export async function resolveAutoTeachRecall(input) {
     baseChunks: input.baseChunks,
     searchMemories: input.searchMemories
   });
+
+  if (lowSignalTask) {
+    return {
+      ...result,
+      autoRecallEnabled: false,
+      memoryRecall: {
+        ...result.memoryRecall,
+        status: "skipped",
+        reason: "low-signal-task"
+      }
+    };
+  }
 
   return {
     ...result,

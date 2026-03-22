@@ -16,6 +16,7 @@
     "project": "learning-context-system",
     "limit": 3,
     "scope": "project",
+    "backend": "resilient",
     "autoRecall": true,
     "autoRemember": false,
     "strictRecall": false,
@@ -38,6 +39,9 @@
   "safety": {
     "requirePlanForWrite": false,
     "allowedScopePaths": [],
-    "maxTokenBudget": 700
+    "maxTokenBudget": 700,
+    "requireExplicitFocusForWorkspaceScan": true,
+    "minWorkspaceFocusLength": 24,
+    "blockDebugWithoutStrongFocus": true
   }
 }

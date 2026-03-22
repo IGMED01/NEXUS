@@ -227,16 +227,54 @@ export async function runProjectDoctor(input: RunProjectDoctorInput): Promise<Do
       : "Set config.safety.requirePlanForWrite=true and define config.safety.allowedScopePaths for production workflows."
   });
 
+  const focusSafetyEnabled =
+    configInfo.config.safety.requireExplicitFocusForWorkspaceScan === true &&
+    configInfo.config.safety.minWorkspaceFocusLength >= 1;
+  checks.push({
+    id: "focus-safety-gate",
+    label: "Workspace focus safety gate",
+    status: focusSafetyEnabled ? "pass" : "warn",
+    detail: focusSafetyEnabled
+      ? `Explicit focus required for workspace scans (min length ${configInfo.config.safety.minWorkspaceFocusLength}).`
+      : "Workspace focus safety gate is relaxed.",
+    fix: focusSafetyEnabled
+      ? ""
+      : "Set config.safety.requireExplicitFocusForWorkspaceScan=true and config.safety.minWorkspaceFocusLength>=24."
+  });
+
+  const memoryBackend = configInfo.config.memory.backend || "resilient";
+  const engramEnabledByBackend = memoryBackend !== "local-only";
+  checks.push({
+    id: "memory-backend",
+    label: "Memory backend mode",
+    status: memoryBackend === "resilient" ? "pass" : "warn",
+    detail:
+      memoryBackend === "resilient"
+        ? "resilient (Engram primary + local fallback)."
+        : memoryBackend === "engram-only"
+          ? "engram-only (no local fallback)."
+          : "local-only (Engram disabled by config).",
+    fix:
+      memoryBackend === "resilient"
+        ? ""
+        : "Prefer memory.backend='resilient' for production reliability unless you intentionally need single-provider mode."
+  });
+
   const engramBinary = path.resolve(cwd, configInfo.config.engram.binaryPath || "tools/engram/engram.exe");
   const engramBinaryExists = await pathExists(engramBinary);
   checks.push({
     id: "engram-binary",
     label: "Engram binary",
-    status: engramBinaryExists ? "pass" : "warn",
-    detail: engramBinaryExists ? engramBinary : `Not found: ${engramBinary}`,
-    fix: engramBinaryExists
-      ? ""
-      : "Install Engram or point config.engram.binaryPath to the correct binary."
+    status: engramEnabledByBackend ? (engramBinaryExists ? "pass" : "warn") : "pass",
+    detail: engramEnabledByBackend
+      ? engramBinaryExists
+        ? engramBinary
+        : `Not found: ${engramBinary}`
+      : `Skipped because memory.backend='${memoryBackend}'.`,
+    fix:
+      !engramEnabledByBackend || engramBinaryExists
+        ? ""
+        : "Install Engram or point config.engram.binaryPath to the correct binary."
   });
 
   const engramDataDir = path.resolve(cwd, configInfo.config.engram.dataDir || ".engram");
@@ -244,9 +282,16 @@ export async function runProjectDoctor(input: RunProjectDoctorInput): Promise<Do
   checks.push({
     id: "engram-data",
     label: "Engram data directory",
-    status: engramDataExists ? "pass" : "warn",
-    detail: engramDataExists ? engramDataDir : `Missing data dir: ${engramDataDir}`,
-    fix: engramDataExists ? "" : "The directory will be created on first successful Engram write."
+    status: engramEnabledByBackend ? (engramDataExists ? "pass" : "warn") : "pass",
+    detail: engramEnabledByBackend
+      ? engramDataExists
+        ? engramDataDir
+        : `Missing data dir: ${engramDataDir}`
+      : `Skipped because memory.backend='${memoryBackend}'.`,
+    fix:
+      !engramEnabledByBackend || engramDataExists
+        ? ""
+        : "The directory will be created on first successful Engram write."
   });
 
   const summary = checks.reduce<DoctorResult["summary"]>(

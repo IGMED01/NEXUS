@@ -52,12 +52,12 @@ function toPacketChunk(chunk, debug = false) {
     id: chunk.id,
     source: chunk.source,
     kind: chunk.kind,
+    origin: chunk.origin,
     score: Number(chunk.score.toFixed(3)),
     content: chunk.content,
     ...(chunk.kind === "memory" ? { memoryType: extractMemoryType(chunk.content) } : {}),
     ...(debug
       ? {
-          origin: chunk.origin,
           tokenCount: chunk.tokenCount,
           diagnostics: chunk.diagnostics
         }
@@ -171,11 +171,11 @@ export function buildLearningPacket(input) {
           id: chunk.id,
           reason: chunk.reason,
           score: chunk.score,
+          origin: chunk.origin,
           ...(debug
             ? {
                 source: chunk.source,
                 kind: chunk.kind,
-                origin: chunk.origin,
                 tokenCount: chunk.tokenCount,
                 diagnostics: chunk.diagnostics
               }

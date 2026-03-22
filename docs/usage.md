@@ -89,6 +89,7 @@ Use that file for stable defaults such as:
 - token budgets
 - memory limits
 - memory automation (`memory.autoRecall`, `memory.autoRemember`)
+- memory backend strategy (`memory.backend`: `resilient`, `engram-only`, `local-only`)
 - Engram paths
 - scan safety policy
 - scan noise policy (`scan.ignoreDirs`)
@@ -103,6 +104,12 @@ Concept:
 - **CLI flags** = per-run override
 
 That is more production-friendly than relying on long repeated command lines.
+
+Memory backend modes:
+
+- `resilient` (default): Engram primary + local fallback file
+- `engram-only`: only Engram (no fallback)
+- `local-only`: only local fallback file (no Engram calls)
 
 ## Command 0: Check local setup
 
@@ -280,12 +287,17 @@ Example:
 - `safety.requirePlanForWrite`
 - `safety.allowedScopePaths`
 - `safety.maxTokenBudget`
+- `safety.requireExplicitFocusForWorkspaceScan`
+- `safety.minWorkspaceFocusLength`
+- `safety.blockDebugWithoutStrongFocus`
 
 When enabled, the CLI blocks risky runs before execution:
 
 1. write commands without explicit plan approval (`--plan-approved true`)
 2. changed/output paths outside allowed scope
 3. token budgets above `safety.maxTokenBudget`
+4. workspace scans without explicit signal (`--focus` or `--task/--objective`)
+5. debug traces on weak focus (to avoid noisy high-cost runs)
 
 Example:
 
@@ -294,10 +306,37 @@ Example:
   "safety": {
     "requirePlanForWrite": true,
     "allowedScopePaths": ["src", "docs"],
-    "maxTokenBudget": 500
+    "maxTokenBudget": 500,
+    "requireExplicitFocusForWorkspaceScan": true,
+    "minWorkspaceFocusLength": 24,
+    "blockDebugWithoutStrongFocus": true
   }
 }
 ```
+
+## North Star quality gate (errors prevented per task)
+
+Run the formal gate over observability metrics:
+
+```bash
+npm run northstar:check
+```
+
+Default gate checks:
+
+1. minimum total runs exist
+2. minimum blocked safety runs exist
+3. minimum prevented errors exist
+4. prevented error rate (`preventedErrors / runs`) is above threshold
+5. prevented errors stay consistent (`preventedErrors <= blockedRuns`)
+
+Useful overrides:
+
+- `--min-runs 50`
+- `--min-blocked-runs 2`
+- `--min-prevented-errors 2`
+- `--min-prevented-error-rate 0.01`
+- `--max-degraded-rate 0.3` (optional hard cap)
 
 ## Command 1: Select useful context in the synthetic playground
 
@@ -476,6 +515,8 @@ By default, `teach` now does a best-effort recall from Engram.
 
 That default is useful for real workspace flows, but the synthetic auth playground should usually opt out with `--no-recall`.
 
+To reduce waste, `teach` auto-skips recall on low-signal tasks (very short task/objective and no `--changed-files`). If recall is important for a small task, pass `--changed-files` or `--recall-query`.
+
 It no longer depends on one raw sentence only. The CLI first derives shorter concept-heavy queries such as:
 
 - architecture terms from changed files
@@ -491,6 +532,8 @@ Useful options:
 - `--memory-scope`: defaults to `project`
 - `--no-recall`: disables the feature
 - `--strict-recall`: fails the command if Engram recall fails instead of continuing without memory
+- `--local-memory-fallback`: when `true` (default), memory commands fall back to local `.lcs/local-memory-store.jsonl` if Engram fails
+- `--memory-fallback-file`: custom path for the local fallback memory store
 - `--debug`: prints ranking signals, suppression breakdown, and recall internals for inspection
 
 ## Input contract

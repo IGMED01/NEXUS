@@ -181,6 +181,8 @@ export async function resolveTeachRecall(input) {
   const retryBackoffMs = Math.max(0, Math.trunc(input.retryBackoffMs ?? DEFAULT_RECALL_RETRY_BACKOFF_MS));
   let providerHadSuccess = false;
   let lastProviderError = "";
+  let providerFallbackWarning = "";
+  let providerFallbackKind = "";
 
   try {
     for (const query of queryCandidates) {
@@ -204,6 +206,12 @@ export async function resolveTeachRecall(input) {
           }
         );
         providerHadSuccess = true;
+        if (memoryResult && typeof memoryResult === "object" && memoryResult.degraded === true) {
+          providerFallbackWarning =
+            typeof memoryResult.warning === "string" ? memoryResult.warning : "";
+          providerFallbackKind =
+            typeof memoryResult.failureKind === "string" ? memoryResult.failureKind : "";
+        }
       } catch (error) {
         lastProviderError = errorMessage(error);
 
@@ -261,8 +269,8 @@ export async function resolveTeachRecall(input) {
       memoryRecall: {
         enabled: true,
         status: memoryChunks.length ? "recalled" : "empty",
-        degraded: false,
-        reason: "",
+        degraded: Boolean(providerFallbackWarning),
+        reason: providerFallbackWarning ? "fallback-local" : "",
         query: winningQuery,
         queriesTried,
         matchedQueries,
@@ -272,7 +280,8 @@ export async function resolveTeachRecall(input) {
         firstMatchIndex,
         selectedChunks: 0,
         suppressedChunks: 0,
-        error: ""
+        error: providerFallbackWarning || "",
+        ...(providerFallbackKind ? { failureKind: providerFallbackKind } : {})
       }
     };
   } catch (error) {

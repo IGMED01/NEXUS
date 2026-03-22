@@ -11,6 +11,12 @@ import { loadChunkFile } from "../io/json-file.js";
 import { writeTextFile } from "../io/text-file.js";
 import { loadWorkspaceChunks } from "../io/workspace-chunks.js";
 import { createEngramClient, searchOutputToChunks } from "../memory/engram-client.js";
+import { createLocalMemoryStore } from "../memory/local-memory-store.js";
+import {
+  classifyMemoryFailure,
+  createResilientMemoryClient,
+  memoryFailureFixHint
+} from "../memory/resilient-memory-client.js";
 import {
   getObservabilityReport,
   recordCommandMetric
@@ -53,6 +59,10 @@ import {
  */
 
 /**
+ * @typedef {"resilient" | "engram-only" | "local-only"} MemoryBackendMode
+ */
+
+/**
  * @typedef {Awaited<ReturnType<typeof loadProjectConfig>>} LoadedConfigInfo
  */
 
@@ -80,7 +90,36 @@ import {
 
 /**
  * @typedef {{
- *   engramClient?: ReturnType<typeof createEngramClient>,
+ *   config?: { dataDir?: string, filePath?: string },
+ *   recallContext: (project?: string) => Promise<Record<string, unknown> & { stdout?: string }>,
+ *   searchMemories: (
+ *     query: string,
+ *     options?: { project?: string, scope?: string, type?: string, limit?: number }
+ *   ) => Promise<Record<string, unknown> & { stdout: string }>,
+ *   saveMemory: (input: {
+ *     title: string,
+ *     content: string,
+ *     type?: string,
+   *     project?: string,
+   *     scope?: string,
+   *     topic?: string
+ *   }) => Promise<Record<string, unknown>>,
+ *   closeSession: (input: {
+ *     summary: string,
+ *     learned?: string,
+ *     next?: string,
+ *     title?: string,
+ *     project?: string,
+ *     scope?: string,
+ *     type?: string
+ *   }) => Promise<Record<string, unknown>>
+ * }} MemoryClientLike
+ */
+
+/**
+ * @typedef {{
+ *   engramClient?: MemoryClientLike,
+ *   localMemoryClient?: MemoryClientLike,
  *   notionClient?: ReturnType<typeof createNotionSyncClient>
  * }} AppDependencies
  */
@@ -140,12 +179,36 @@ import {
  *   stdout?: string,
  *   stderr?: string,
  *   dataDir?: string,
+ *   filePath?: string,
+ *   provider?: string,
  *   degraded?: boolean,
  *   warning?: string,
  *   error?: string,
  *   failureKind?: string,
  *   fixHint?: string
  * }} RecallCommandResult
+ */
+
+/**
+ * @typedef {{
+ *   action: string,
+ *   title: string,
+ *   content: string,
+ *   type: string,
+ *   project: string,
+ *   scope: string,
+ *   topic: string,
+ *   summary?: string,
+ *   learned?: string,
+ *   next?: string,
+ *   stdout: string,
+ *   dataDir: string,
+ *   filePath?: string,
+ *   provider?: string,
+ *   degraded?: boolean,
+ *   warning?: string,
+ *   error?: string
+ * }} MemoryWriteCommandResult
  */
 
 /**
@@ -361,9 +424,27 @@ function getContentOption(options) {
 }
 
 /**
+ * @param {string | undefined} value
+ * @returns {MemoryBackendMode}
+ */
+function parseMemoryBackendMode(value) {
+  if (!value || value === "true") {
+    return "resilient";
+  }
+
+  if (value === "resilient" || value === "engram-only" || value === "local-only") {
+    return value;
+  }
+
+  throw new Error(
+    "Option --memory-backend must be one of: resilient, engram-only, local-only."
+  );
+}
+
+/**
  * @param {CliOptions} options
  * @param {AppDependencies} dependencies
- * @returns {ReturnType<typeof createEngramClient>}
+ * @returns {MemoryClientLike}
  */
 function getEngramClient(options, dependencies) {
   if (dependencies.engramClient) {
@@ -373,6 +454,55 @@ function getEngramClient(options, dependencies) {
   return createEngramClient({
     binaryPath: options["engram-bin"],
     dataDir: options["engram-data-dir"]
+  });
+}
+
+/**
+ * @param {CliOptions} options
+ * @param {AppDependencies} dependencies
+ */
+function getLocalMemoryClient(options, dependencies) {
+  if (dependencies.localMemoryClient) {
+    return dependencies.localMemoryClient;
+  }
+
+  return createLocalMemoryStore({
+    filePath: options["memory-fallback-file"]
+  });
+}
+
+/**
+ * @param {CliOptions} options
+ * @param {AppDependencies} dependencies
+ */
+function getMemoryClient(options, dependencies) {
+  const backendMode = parseMemoryBackendMode(options["memory-backend"]);
+
+  if (backendMode !== "local-only" && dependencies.engramClient && !dependencies.localMemoryClient) {
+    return dependencies.engramClient;
+  }
+
+  if (backendMode === "local-only") {
+    return getLocalMemoryClient(options, dependencies);
+  }
+
+  const primary = getEngramClient(options, dependencies);
+
+  if (backendMode === "engram-only") {
+    return primary;
+  }
+
+  const fallback = getLocalMemoryClient(options, dependencies);
+  const fallbackEnabled = booleanOption(options, "local-memory-fallback", true);
+
+  if (!fallbackEnabled) {
+    return primary;
+  }
+
+  return createResilientMemoryClient({
+    primary,
+    fallback,
+    enabled: true
   });
 }
 
@@ -422,6 +552,54 @@ function normalizeScopePath(value) {
     .replace(/\/$/u, "")
     .trim()
     .toLowerCase();
+}
+
+/**
+ * @param {string} value
+ */
+function compactSignal(value) {
+  return value.replace(/\s+/gu, " ").trim();
+}
+
+/**
+ * @param {CliCommand} command
+ * @param {CliOptions} options
+ */
+function resolveWorkspaceFocusSignal(command, options) {
+  if (command === "select") {
+    const signal = compactSignal(options.focus ?? "");
+    return {
+      signal,
+      explicit: signal.length > 0
+    };
+  }
+
+  if (command === "teach") {
+    const signal = compactSignal(
+      [options.focus, options.task, options.objective].filter(Boolean).join(" ")
+    );
+
+    return {
+      signal,
+      explicit: signal.length > 0
+    };
+  }
+
+  if (command === "readme") {
+    const signal = compactSignal(
+      [options.focus, options.task, options.objective].filter(Boolean).join(" ")
+    );
+
+    return {
+      signal,
+      explicit: signal.length > 0
+    };
+  }
+
+  return {
+    signal: "",
+    explicit: false
+  };
 }
 
 /**
@@ -513,6 +691,46 @@ function evaluateSafetyGate(command, options, numeric, loadedConfig) {
     if (outputPath && !isPathInScope(outputPath, allowedScopePaths)) {
       details.push(`output path '${outputPath}' is outside safety.allowedScopePaths.`);
     }
+  }
+
+  const workspaceScanMode =
+    !options.input &&
+    (Boolean(options.workspace) ||
+      command === "readme" ||
+      command === "teach" ||
+      command === "select");
+  const focusSignal = resolveWorkspaceFocusSignal(command, options);
+  const minWorkspaceFocusLength = Math.max(1, Number(safety.minWorkspaceFocusLength || 1));
+  const requireExplicitFocusForWorkspaceScan =
+    safety.requireExplicitFocusForWorkspaceScan !== false;
+
+  if (
+    workspaceScanMode &&
+    (command === "select" || command === "readme" || command === "teach")
+  ) {
+    if (requireExplicitFocusForWorkspaceScan && !focusSignal.explicit) {
+      details.push(
+        "workspace scan is blocked: add explicit --focus (or --task/--objective) to avoid low-signal full-repo scans."
+      );
+    } else if (focusSignal.signal.length > 0 && focusSignal.signal.length < minWorkspaceFocusLength) {
+      details.push(
+        `workspace scan focus is too short (${focusSignal.signal.length}); require at least ${minWorkspaceFocusLength} characters for stable selection.`
+      );
+    }
+  }
+
+  const debugEnabled = options.debug === "true";
+  const debugFocusFloor = Math.max(minWorkspaceFocusLength, 30);
+
+  if (
+    debugEnabled &&
+    workspaceScanMode &&
+    safety.blockDebugWithoutStrongFocus !== false &&
+    focusSignal.signal.length < debugFocusFloor
+  ) {
+    details.push(
+      `debug run requires stronger focus (${debugFocusFloor}+ chars) to avoid high-cost noisy traces.`
+    );
   }
 
   return {
@@ -614,6 +832,18 @@ function applyConfigDefaults(command, rawOptions, loadedConfig) {
     options["engram-data-dir"] = config.engram.dataDir;
   }
 
+  if (!options["memory-fallback-file"]) {
+    options["memory-fallback-file"] = ".lcs/local-memory-store.jsonl";
+  }
+
+  if (!options["local-memory-fallback"]) {
+    options["local-memory-fallback"] = "true";
+  }
+
+  if (!options["memory-backend"]) {
+    options["memory-backend"] = config.memory.backend || "resilient";
+  }
+
   if (!options.format && config.output.defaultFormat) {
     options.format = config.output.defaultFormat;
   }
@@ -631,32 +861,24 @@ function applyConfigDefaults(command, rawOptions, loadedConfig) {
 }
 
 /**
- * @param {ReturnType<typeof createEngramClient>} engram
- * @param {{ query?: string, project?: string, type?: string, scope?: string, limit?: number }} input
+ * @param {MemoryClientLike} memoryClient
+ * @param {{
+ *   query?: string,
+ *   project?: string,
+ *   type?: string,
+ *   scope?: string,
+ *   limit?: number,
+ *   provider?: "engram" | "local"
+ * }} input
  * @param {unknown} error
  * @returns {RecallCommandResult}
  */
-function buildDegradedRecallResult(engram, input, error) {
+function buildDegradedRecallResult(memoryClient, input, error) {
   const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.toLowerCase();
-  const failureKind = /enoent|cannot find|not recognized as an internal or external command/i.test(
-    normalized
-  )
-    ? "binary-missing"
-    : /etimedout|timed out|timeout|killed|sigterm/i.test(normalized)
-      ? "timeout"
-      : /malformed|parse|unexpected output|unexpected token|invalid format/i.test(normalized)
-        ? "malformed-output"
-        : "unknown";
-  const fixHint =
-    failureKind === "binary-missing"
-      ? "Verify --engram-bin path or learning-context.config.json -> engram.binaryPath."
-      : failureKind === "timeout"
-        ? "Retry recall, reduce query scope, and verify Engram runtime health."
-        : failureKind === "malformed-output"
-          ? "Update Engram and validate output format with doctor + recall --debug."
-          : "Run doctor and verify Engram binary and data directory settings.";
-  const warning = `Engram unavailable; returning an empty recall result in degraded mode (${failureKind}).`;
+  const failureKind = classifyMemoryFailure(error);
+  const fixHint = memoryFailureFixHint(failureKind);
+  const provider = input.provider ?? "engram";
+  const warning = `Memory backend '${provider}' unavailable; returning an empty recall result in degraded mode (${failureKind}).`;
 
   return {
     mode: input.query ? "search" : "context",
@@ -667,7 +889,9 @@ function buildDegradedRecallResult(engram, input, error) {
     limit: input.limit ?? null,
     stdout: "",
     stderr: "",
-    dataDir: engram.config?.dataDir ?? "",
+    dataDir: memoryClient.config?.dataDir ?? "",
+    filePath: memoryClient.config?.filePath,
+    provider,
     degraded: true,
     warning,
     error: message,
@@ -972,7 +1196,8 @@ export async function runCli(argv, dependencies = {}) {
   }
 
   if (command === "recall") {
-    const engram = getEngramClient(options, dependencies);
+    const memoryBackend = parseMemoryBackendMode(options["memory-backend"]);
+    const memoryClient = getMemoryClient(options, dependencies);
     const project = options.project;
     const query = options.query;
     const type = options.type;
@@ -995,14 +1220,21 @@ export async function runCli(argv, dependencies = {}) {
     const warnings = [];
 
     try {
-      result = query
-        ? await engram.searchMemories(query, {
-            project,
-            type,
-            scope,
-            limit
-          })
-        : await engram.recallContext(project);
+      result = /** @type {RecallCommandResult} */ (
+        query
+          ? await memoryClient.searchMemories(query, {
+              project,
+              type,
+              scope,
+              limit
+            })
+          : await memoryClient.recallContext(project)
+      );
+      degraded = result?.degraded === true;
+
+      if (result?.warning) {
+        warnings.push(result.warning);
+      }
     } catch (error) {
       if (!allowDegradedRecall) {
         throw error;
@@ -1010,13 +1242,14 @@ export async function runCli(argv, dependencies = {}) {
 
       degraded = true;
       result = buildDegradedRecallResult(
-        engram,
+        memoryClient,
         {
           query,
           project,
           type,
           scope,
-          limit
+          limit,
+          provider: memoryBackend === "local-only" ? "local" : "engram"
         },
         error
       );
@@ -1030,7 +1263,13 @@ export async function runCli(argv, dependencies = {}) {
         ? searchOutputToChunks(result.stdout, { query, project }).length
         : 0;
     const recallStatus = degraded
-      ? "failed-degraded"
+      ? result?.provider === "local"
+        ? query
+          ? recoveredChunks > 0
+            ? "recalled-fallback"
+            : "empty-fallback"
+          : "context-fallback"
+        : "failed-degraded"
       : query
         ? recoveredChunks > 0
           ? "recalled"
@@ -1072,16 +1311,26 @@ export async function runCli(argv, dependencies = {}) {
   }
 
   if (command === "remember") {
-    const engram = getEngramClient(options, dependencies);
-    const result = await engram.saveMemory({
-      title: requireOption(options, "title"),
-      content: getContentOption(options),
-      type: options.type ?? "learning",
-      project: options.project,
-      scope: options.scope ?? "project",
-      topic: options.topic
-    });
-    const metric = buildCommandMetric("remember", startedAt);
+    const memoryClient = getMemoryClient(options, dependencies);
+    const result = /** @type {MemoryWriteCommandResult} */ (
+      await memoryClient.saveMemory({
+        title: requireOption(options, "title"),
+        content: getContentOption(options),
+        type: options.type ?? "learning",
+        project: options.project,
+        scope: options.scope ?? "project",
+        topic: options.topic
+      })
+    );
+    const degraded = result?.degraded === true;
+    /** @type {string[]} */
+    const warnings = [];
+
+    if (result?.warning) {
+      warnings.push(result.warning);
+    }
+
+    const metric = buildCommandMetric("remember", startedAt, { degraded });
     await safeRecordCommandMetric(metric);
 
     return {
@@ -1097,23 +1346,37 @@ export async function runCli(argv, dependencies = {}) {
               },
               format,
               loadedConfig,
-              buildRuntimeMeta(startedAt)
+              {
+                degraded,
+                warnings,
+                ...buildRuntimeMeta(startedAt)
+              }
             )
     };
   }
 
   if (command === "close") {
-    const engram = getEngramClient(options, dependencies);
-    const result = await engram.closeSession({
-      summary: requireOption(options, "summary"),
-      learned: options.learned,
-      next: options.next,
-      title: options.title,
-      project: options.project,
-      scope: options.scope ?? "project",
-      type: options.type ?? "learning"
-    });
-    const metric = buildCommandMetric("close", startedAt);
+    const memoryClient = getMemoryClient(options, dependencies);
+    const result = /** @type {MemoryWriteCommandResult} */ (
+      await memoryClient.closeSession({
+        summary: requireOption(options, "summary"),
+        learned: options.learned,
+        next: options.next,
+        title: options.title,
+        project: options.project,
+        scope: options.scope ?? "project",
+        type: options.type ?? "learning"
+      })
+    );
+    const degraded = result?.degraded === true;
+    /** @type {string[]} */
+    const warnings = [];
+
+    if (result?.warning) {
+      warnings.push(result.warning);
+    }
+
+    const metric = buildCommandMetric("close", startedAt, { degraded });
     await safeRecordCommandMetric(metric);
 
     return {
@@ -1129,7 +1392,11 @@ export async function runCli(argv, dependencies = {}) {
               },
               format,
               loadedConfig,
-              buildRuntimeMeta(startedAt)
+              {
+                degraded,
+                warnings,
+                ...buildRuntimeMeta(startedAt)
+              }
             )
     };
   }
@@ -1247,6 +1514,7 @@ export async function runCli(argv, dependencies = {}) {
     };
   }
 
+  const teachMemoryClient = getMemoryClient(options, dependencies);
   const teachResult = await runTeachCommand({
     options,
     loadedConfig,
@@ -1259,7 +1527,10 @@ export async function runCli(argv, dependencies = {}) {
     format,
     debugEnabled,
     startedAt,
-    dependencies,
+    dependencies: {
+      ...dependencies,
+      engramClient: teachMemoryClient
+    },
     serializeCommandResult,
     buildRuntimeMeta
   });

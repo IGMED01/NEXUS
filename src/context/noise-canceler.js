@@ -68,6 +68,8 @@ const KIND_PRIOR = /** @type {Record<ChunkKind, number>} */ ({
   log: 0.2
 });
 
+const DEFAULT_RECALL_RESERVE_RATIO = 0.15;
+
 /**
  * @param {number} value
  * @param {number} [min]
@@ -185,6 +187,18 @@ function normalizeSource(source = "") {
  */
 function chunkOrigin(source = "") {
   return normalizeSource(source).startsWith("engram://") ? "engram" : "workspace";
+}
+
+/**
+ * Boost for chunks that were explicitly recalled from memory.
+ * These were specifically retrieved for the task, so they deserve
+ * higher selection priority than brute-force scan discoveries.
+ *
+ * @param {string} [source]
+ * @returns {number}
+ */
+function recallBoost(source = "") {
+  return normalizeSource(source).startsWith("engram://") ? 0.12 : 0;
 }
 
 /**
@@ -516,6 +530,7 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
   const genericRunnerPenalty = genericTestRunnerPenalty(chunk, changedFiles);
   const narrativePenalty = narrativeMemoryPenalty(chunk);
   const implementationFit = implementationFitScore(chunk, changedFiles);
+  const recallOriginBoost = recallBoost(chunk.source);
 
   const redundancy = selectedChunks.length
     ? Math.max(
@@ -536,7 +551,8 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
     sourceAffinity * 0.1 +
     implementationFit * 0.12 +
     changeAnchor * changeAnchorWeight +
-    relatedTestBoost * 0.04;
+    relatedTestBoost * 0.04 +
+    recallOriginBoost * 0.09;
 
   const penalty =
     redundancy * 0.22 +
@@ -562,6 +578,7 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
       sourcePenalty,
       genericRunnerPenalty,
       implementationFit,
+      recallOriginBoost,
       narrativePenalty,
       redundancy,
       penalty
@@ -581,7 +598,8 @@ export function selectContextWindow(chunks, options = {}) {
     maxChunks = 6,
     minScore = 0.25,
     sentenceBudget = 3,
-    changedFiles = []
+    changedFiles = [],
+    recallReserveRatio = DEFAULT_RECALL_RESERVE_RATIO
   } = options;
 
   /** @type {PreparedChunk[]} */
@@ -607,8 +625,45 @@ export function selectContextWindow(chunks, options = {}) {
       score: scoreChunk(chunk, focus, [], { changedFiles }).total
     }))
     .sort((left, right) => right.score - left.score);
+  const preparedById = new Map(prepared.map((chunk) => [chunk.id, chunk]));
 
-  for (const entry of ranked) {
+  const normalizedRecallReserveRatio = clamp(recallReserveRatio, 0, 0.5);
+  const recallRanked = ranked.filter((entry) => entry.chunk.origin === "engram");
+  const workspaceRanked = ranked.filter((entry) => entry.chunk.origin === "workspace");
+  const recallTokenBudget = recallRanked.length
+    ? Math.max(1, Math.floor(tokenBudget * normalizedRecallReserveRatio))
+    : 0;
+  /** @type {Set<string>} */
+  const processed = new Set();
+  let usedRecallTokens = 0;
+
+  /**
+   * @param {PreparedChunk & { score: number, diagnostics: ChunkDiagnostics }} chunk
+   * @param {string} reason
+   */
+  function suppressChunk(chunk, reason) {
+    processed.add(chunk.id);
+    suppressed.push({
+      id: chunk.id,
+      source: chunk.source,
+      kind: chunk.kind,
+      origin: chunk.origin,
+      tokenCount: chunk.tokenCount,
+      reason,
+      score: chunk.score,
+      diagnostics: chunk.diagnostics
+    });
+  }
+
+  /**
+   * @param {{ chunk: PreparedChunk, score: number }} entry
+   * @param {"recall" | "general"} phase
+   */
+  function evaluateEntry(entry, phase) {
+    if (processed.has(entry.chunk.id)) {
+      return;
+    }
+
     const rescored = scoreChunk(entry.chunk, focus, selected, { changedFiles });
     const chunk = {
       ...entry.chunk,
@@ -620,17 +675,8 @@ export function selectContextWindow(chunks, options = {}) {
     );
 
     if (chunk.score < minScore) {
-      suppressed.push({
-        id: chunk.id,
-        source: chunk.source,
-        kind: chunk.kind,
-        origin: chunk.origin,
-        tokenCount: chunk.tokenCount,
-        reason: "score-below-threshold",
-        score: chunk.score,
-        diagnostics: chunk.diagnostics
-      });
-      continue;
+      suppressChunk(chunk, "score-below-threshold");
+      return;
     }
 
     if (
@@ -640,17 +686,8 @@ export function selectContextWindow(chunks, options = {}) {
       chunk.diagnostics.sourcePenalty >= 0.8 &&
       chunk.diagnostics.sourceAffinity <= 0.2
     ) {
-      suppressed.push({
-        id: chunk.id,
-        source: chunk.source,
-        kind: chunk.kind,
-        origin: chunk.origin,
-        tokenCount: chunk.tokenCount,
-        reason: "generic-doc-noise",
-        score: chunk.score,
-        diagnostics: chunk.diagnostics
-      });
-      continue;
+      suppressChunk(chunk, "generic-doc-noise");
+      return;
     }
 
     if (
@@ -661,64 +698,140 @@ export function selectContextWindow(chunks, options = {}) {
       chunk.diagnostics.relatedTestBoost < 0.45 &&
       chunk.diagnostics.sourceAffinity < 0.3
     ) {
-      suppressed.push({
-        id: chunk.id,
-        source: chunk.source,
-        kind: chunk.kind,
-        origin: chunk.origin,
-        tokenCount: chunk.tokenCount,
-        reason: "generic-test-noise",
-        score: chunk.score,
-        diagnostics: chunk.diagnostics
-      });
-      continue;
+      suppressChunk(chunk, "generic-test-noise");
+      return;
     }
 
     if (selected.length >= maxChunks) {
-      suppressed.push({
-        id: chunk.id,
-        source: chunk.source,
-        kind: chunk.kind,
-        origin: chunk.origin,
-        tokenCount: chunk.tokenCount,
-        reason: "max-chunks-reached",
-        score: chunk.score,
-        diagnostics: chunk.diagnostics
-      });
-      continue;
+      suppressChunk(chunk, "max-chunks-reached");
+      return;
+    }
+
+    if (
+      phase === "recall" &&
+      chunk.origin === "engram" &&
+      recallTokenBudget > 0 &&
+      usedRecallTokens + chunk.tokenCount > recallTokenBudget
+    ) {
+      return;
     }
 
     if (usedTokens + chunk.tokenCount > tokenBudget) {
-      suppressed.push({
-        id: chunk.id,
-        source: chunk.source,
-        kind: chunk.kind,
-        origin: chunk.origin,
-        tokenCount: chunk.tokenCount,
-        reason: "token-budget-exceeded",
-        score: chunk.score,
-        diagnostics: chunk.diagnostics
-      });
-      continue;
+      suppressChunk(chunk, "token-budget-exceeded");
+      return;
     }
 
     if (chunk.diagnostics.redundancy >= 0.65) {
-      suppressed.push({
-        id: chunk.id,
-        source: chunk.source,
-        kind: chunk.kind,
-        origin: chunk.origin,
-        tokenCount: chunk.tokenCount,
-        reason: "redundant-context",
-        score: chunk.score,
-        diagnostics: chunk.diagnostics
-      });
-      continue;
+      suppressChunk(chunk, "redundant-context");
+      return;
     }
 
+    processed.add(chunk.id);
     selected.push(chunk);
     usedTokens += chunk.tokenCount;
+
+    if (phase === "recall" && chunk.origin === "engram") {
+      usedRecallTokens += chunk.tokenCount;
+    }
   }
+
+  for (const entry of recallRanked) {
+    evaluateEntry(entry, "recall");
+  }
+
+  for (const entry of workspaceRanked) {
+    evaluateEntry(entry, "general");
+  }
+
+  for (const entry of ranked) {
+    evaluateEntry(entry, "general");
+  }
+
+  while (true) {
+    const selectedRecall = selected
+      .map((chunk, index) => ({ chunk, index }))
+      .filter((entry) => entry.chunk.origin === "engram")
+      .sort((left, right) => left.chunk.score - right.chunk.score);
+
+    const workspaceCandidates = suppressed
+      .map((chunk, index) => ({ chunk, index }))
+      .filter(
+        (entry) =>
+          entry.chunk.origin === "workspace" &&
+          (entry.chunk.reason === "max-chunks-reached" ||
+            entry.chunk.reason === "token-budget-exceeded")
+      )
+      .sort((left, right) => right.chunk.score - left.chunk.score);
+
+    const recallEntry = selectedRecall[0];
+
+    if (!recallEntry || !workspaceCandidates.length) {
+      break;
+    }
+
+    const selectedWithoutRecall = selected.filter((_, index) => index !== recallEntry.index);
+    const workspaceContextCount = selectedWithoutRecall.filter(
+      (chunk) => chunk.origin === "workspace"
+    ).length;
+    const tightImplementationWindow =
+      changedFiles.length > 0 &&
+      maxChunks <= 5 &&
+      workspaceContextCount >= Math.max(3, maxChunks - 1);
+    /** @type {{ chunk: SelectedChunk, suppressedIndex: number } | null} */
+    let replacement = null;
+
+    for (const workspaceCandidate of workspaceCandidates) {
+      const preparedCandidate = preparedById.get(workspaceCandidate.chunk.id);
+
+      if (!preparedCandidate) {
+        continue;
+      }
+
+      const rescored = scoreChunk(preparedCandidate, focus, selectedWithoutRecall, { changedFiles });
+      const candidate = {
+        ...preparedCandidate,
+        score: rescored.total,
+        diagnostics: rescored.detail
+      };
+
+      if (candidate.score < minScore) {
+        continue;
+      }
+
+      if (!tightImplementationWindow && candidate.score <= recallEntry.chunk.score) {
+        continue;
+      }
+
+      if (usedTokens - recallEntry.chunk.tokenCount + candidate.tokenCount > tokenBudget) {
+        continue;
+      }
+
+      replacement = {
+        chunk: candidate,
+        suppressedIndex: workspaceCandidate.index
+      };
+      break;
+    }
+
+    if (!replacement) {
+      break;
+    }
+
+    usedTokens = usedTokens - recallEntry.chunk.tokenCount + replacement.chunk.tokenCount;
+    selected[recallEntry.index] = replacement.chunk;
+    suppressed[replacement.suppressedIndex] = {
+      id: recallEntry.chunk.id,
+      source: recallEntry.chunk.source,
+      kind: recallEntry.chunk.kind,
+      origin: recallEntry.chunk.origin,
+      tokenCount: recallEntry.chunk.tokenCount,
+      reason: "workspace-priority-over-recall",
+      score: recallEntry.chunk.score,
+      diagnostics: recallEntry.chunk.diagnostics
+    };
+  }
+
+  selected.sort((left, right) => right.score - left.score);
 
   return {
     focus,

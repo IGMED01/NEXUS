@@ -15,6 +15,8 @@ import {
 import type {
   Chunk,
   CliContractMeta,
+  EngramSearchOptions,
+  EngramSearchResult,
   LearningPacket,
   MemoryRecallState,
   RuntimeMeta,
@@ -64,8 +66,34 @@ interface ChunkSourceResult {
   stats?: ScanStats;
 }
 
+interface MemoryClientLike {
+  config?: { dataDir?: string };
+  recallContext: (project?: string) => Promise<Record<string, unknown>>;
+  searchMemories: (
+    query: string,
+    options?: EngramSearchOptions
+  ) => Promise<EngramSearchResult & Record<string, unknown>>;
+  saveMemory: (input: {
+    title: string;
+    content: string;
+    type?: string;
+    project?: string;
+    scope?: string;
+    topic?: string;
+  }) => Promise<Record<string, unknown>>;
+  closeSession: (input: {
+    summary: string;
+    learned?: string;
+    next?: string;
+    title?: string;
+    project?: string;
+    scope?: string;
+    type?: string;
+  }) => Promise<Record<string, unknown>>;
+}
+
 interface AppDependencies {
-  engramClient?: ReturnType<typeof createEngramClient>;
+  engramClient?: MemoryClientLike;
 }
 
 interface RunTeachCommandInput {
@@ -96,7 +124,7 @@ interface RunTeachCommandInput {
 function getEngramClient(
   options: CliOptions,
   dependencies: AppDependencies = {}
-): ReturnType<typeof createEngramClient> {
+): MemoryClientLike {
   if (dependencies.engramClient) {
     return dependencies.engramClient;
   }
@@ -285,7 +313,7 @@ export async function runTeachCommand(input: RunTeachCommandInput): Promise<{
       packetWithMemory.autoMemory.rememberRedactionCount = rememberInput.security.redactionCount;
       packetWithMemory.autoMemory.rememberSensitivePathCount =
         rememberInput.security.sensitivePathCount;
-      await engram.saveMemory({
+      const rememberResult = await engram.saveMemory({
         title: rememberInput.title,
         content: rememberInput.content,
         type: rememberInput.type,
@@ -294,6 +322,13 @@ export async function runTeachCommand(input: RunTeachCommandInput): Promise<{
       });
       packetWithMemory.autoMemory.rememberSaved = true;
       packetWithMemory.autoMemory.rememberTitle = rememberInput.title;
+      const rememberWarning =
+        typeof (rememberResult as Record<string, unknown>).warning === "string"
+          ? String((rememberResult as Record<string, unknown>).warning)
+          : "";
+      if (rememberWarning) {
+        packetWithMemory.autoMemory.rememberError = rememberWarning;
+      }
     } catch (error) {
       packetWithMemory.autoMemory.rememberError =
         error instanceof Error ? error.message : String(error);
@@ -314,8 +349,21 @@ export async function runTeachCommand(input: RunTeachCommandInput): Promise<{
     warnings.push(packetWithMemory.memoryRecall.error);
   }
 
-  if (packetWithMemory.autoMemory?.rememberError) {
+  if (
+    packetWithMemory.memoryRecall.status === "skipped" &&
+    packetWithMemory.memoryRecall.reason === "low-signal-task"
+  ) {
+    warnings.push(
+      "Auto recall skipped: low-signal task. Add --changed-files or --recall-query to force memory recall."
+    );
+  }
+
+  if (packetWithMemory.autoMemory?.rememberError && !packetWithMemory.autoMemory.rememberSaved) {
     warnings.push(`Auto remember failed: ${packetWithMemory.autoMemory.rememberError}`);
+  }
+
+  if (packetWithMemory.autoMemory?.rememberSaved && packetWithMemory.autoMemory?.rememberError) {
+    warnings.push(`Auto remember fallback: ${packetWithMemory.autoMemory.rememberError}`);
   }
 
   if ((packetWithMemory.autoMemory?.rememberRedactionCount ?? 0) > 0) {
@@ -332,7 +380,10 @@ export async function runTeachCommand(input: RunTeachCommandInput): Promise<{
 
   const degraded =
     packetWithMemory.memoryRecall.degraded === true ||
-    Boolean(packetWithMemory.autoMemory?.rememberError);
+    Boolean(
+      packetWithMemory.autoMemory?.rememberError &&
+        packetWithMemory.autoMemory.rememberSaved === false
+    );
   const observability = buildTeachObservability(packetWithMemory, Date.now() - startedAt, degraded);
 
   return {

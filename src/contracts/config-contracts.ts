@@ -22,6 +22,7 @@ export interface ProjectMemoryConfig {
   limit: number;
   scope: string;
   type: string;
+  backend: "resilient" | "engram-only" | "local-only";
   strictRecall: boolean;
   degradedRecall: boolean;
   autoRecall: boolean;
@@ -49,6 +50,9 @@ export interface ProjectSafetyConfig {
   requirePlanForWrite: boolean;
   allowedScopePaths: string[];
   maxTokenBudget: number;
+  requireExplicitFocusForWorkspaceScan: boolean;
+  minWorkspaceFocusLength: number;
+  blockDebugWithoutStrongFocus: boolean;
 }
 
 export interface ProjectConfig {
@@ -161,6 +165,7 @@ export function defaultProjectConfig(): ProjectConfig {
       limit: 3,
       scope: "project",
       type: "",
+      backend: "resilient",
       strictRecall: false,
       degradedRecall: true,
       autoRecall: true,
@@ -183,7 +188,10 @@ export function defaultProjectConfig(): ProjectConfig {
     safety: {
       requirePlanForWrite: false,
       allowedScopePaths: [],
-      maxTokenBudget: 700
+      maxTokenBudget: 700,
+      requireExplicitFocusForWorkspaceScan: true,
+      minWorkspaceFocusLength: 24,
+      blockDebugWithoutStrongFocus: true
     }
   };
 }
@@ -236,6 +244,17 @@ export function validateProjectConfig(value: unknown): ProjectConfig {
     fail("Project config.output.defaultFormat must be 'text' or 'json'.");
   }
 
+  const memoryBackend = optionalString(memory?.backend, "Project config.memory.backend");
+
+  if (
+    memoryBackend !== undefined &&
+    memoryBackend !== "resilient" &&
+    memoryBackend !== "engram-only" &&
+    memoryBackend !== "local-only"
+  ) {
+    fail("Project config.memory.backend must be 'resilient', 'engram-only', or 'local-only'.");
+  }
+
   return {
     schemaVersion: optionalString(config.schemaVersion, "Project config.schemaVersion") ?? defaults.schemaVersion,
     project: optionalString(config.project, "Project config.project") ?? defaults.project,
@@ -278,6 +297,7 @@ export function validateProjectConfig(value: unknown): ProjectConfig {
         }) ?? defaults.memory.limit,
       scope: optionalString(memory?.scope, "Project config.memory.scope") ?? defaults.memory.scope,
       type: optionalString(memory?.type, "Project config.memory.type") ?? defaults.memory.type,
+      backend: memoryBackend ?? defaults.memory.backend,
       strictRecall:
         optionalBoolean(memory?.strictRecall, "Project config.memory.strictRecall") ??
         defaults.memory.strictRecall,
@@ -331,7 +351,26 @@ export function validateProjectConfig(value: unknown): ProjectConfig {
         optionalNumber(safety?.maxTokenBudget, "Project config.safety.maxTokenBudget", {
           min: 1,
           integer: true
-        }) ?? defaults.safety.maxTokenBudget
+        }) ?? defaults.safety.maxTokenBudget,
+      requireExplicitFocusForWorkspaceScan:
+        optionalBoolean(
+          safety?.requireExplicitFocusForWorkspaceScan,
+          "Project config.safety.requireExplicitFocusForWorkspaceScan"
+        ) ?? defaults.safety.requireExplicitFocusForWorkspaceScan,
+      minWorkspaceFocusLength:
+        optionalNumber(
+          safety?.minWorkspaceFocusLength,
+          "Project config.safety.minWorkspaceFocusLength",
+          {
+            min: 1,
+            integer: true
+          }
+        ) ?? defaults.safety.minWorkspaceFocusLength,
+      blockDebugWithoutStrongFocus:
+        optionalBoolean(
+          safety?.blockDebugWithoutStrongFocus,
+          "Project config.safety.blockDebugWithoutStrongFocus"
+        ) ?? defaults.safety.blockDebugWithoutStrongFocus
     }
   };
 }

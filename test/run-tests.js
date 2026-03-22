@@ -21,6 +21,8 @@ import {
   createEngramClient,
   searchOutputToChunks
 } from "../src/memory/engram-client.js";
+import { createLocalMemoryStore } from "../src/memory/local-memory-store.js";
+import { createResilientMemoryClient } from "../src/memory/resilient-memory-client.js";
 import { buildTeachRecallQueries } from "../src/memory/recall-queries.js";
 import { resolveTeachRecall } from "../src/memory/teach-recall.js";
 import {
@@ -50,6 +52,10 @@ import {
   evaluateReleaseDiscipline,
   formatReleaseDisciplineReport
 } from "../src/ci/release-discipline.js";
+import {
+  evaluateNorthStarGate,
+  formatNorthStarGateReport
+} from "../src/ci/north-star-gate.js";
 
 const tests = [];
 const execFile = promisify(execFileCallback);
@@ -987,7 +993,8 @@ run("project config parses security policy overrides", () => {
       project: "demo",
       memory: {
         autoRecall: false,
-        autoRemember: true
+        autoRemember: true,
+        backend: "engram-only"
       },
       security: {
         ignoreSensitiveFiles: false,
@@ -1002,7 +1009,10 @@ run("project config parses security policy overrides", () => {
       safety: {
         requirePlanForWrite: true,
         allowedScopePaths: ["src/auth", "docs"],
-        maxTokenBudget: 420
+        maxTokenBudget: 420,
+        requireExplicitFocusForWorkspaceScan: false,
+        minWorkspaceFocusLength: 12,
+        blockDebugWithoutStrongFocus: false
       }
     }),
     "inline"
@@ -1010,6 +1020,7 @@ run("project config parses security policy overrides", () => {
 
   assert.equal(parsed.memory.autoRecall, false);
   assert.equal(parsed.memory.autoRemember, true);
+  assert.equal(parsed.memory.backend, "engram-only");
   assert.equal(parsed.security.ignoreSensitiveFiles, false);
   assert.equal(parsed.security.redactSensitiveContent, false);
   assert.equal(parsed.security.ignoreGeneratedFiles, false);
@@ -1019,6 +1030,24 @@ run("project config parses security policy overrides", () => {
   assert.equal(parsed.safety.requirePlanForWrite, true);
   assert.deepEqual(parsed.safety.allowedScopePaths, ["src/auth", "docs"]);
   assert.equal(parsed.safety.maxTokenBudget, 420);
+  assert.equal(parsed.safety.requireExplicitFocusForWorkspaceScan, false);
+  assert.equal(parsed.safety.minWorkspaceFocusLength, 12);
+  assert.equal(parsed.safety.blockDebugWithoutStrongFocus, false);
+});
+
+run("project config rejects unsupported memory backend values", () => {
+  assert.throws(
+    () =>
+      parseProjectConfig(
+        JSON.stringify({
+          memory: {
+            backend: "redis-cluster"
+          }
+        }),
+        "inline"
+      ),
+    /memory\.backend must be 'resilient', 'engram-only', or 'local-only'/i
+  );
 });
 
 run("v1 contract fixture exists for every JSON CLI command", async () => {
@@ -1134,6 +1163,10 @@ run("init creates config with a stable project id from package name", async () =
     assert.equal(result.project, "example-learning-repo");
     assert.equal(parsed.project, "example-learning-repo");
     assert.equal(parsed.workspace, ".");
+    assert.equal(parsed.memory.backend, "resilient");
+    assert.equal(parsed.safety.requireExplicitFocusForWorkspaceScan, true);
+    assert.equal(parsed.safety.minWorkspaceFocusLength, 24);
+    assert.equal(parsed.safety.blockDebugWithoutStrongFocus, true);
     assert.equal(parsed.security.ignoreSensitiveFiles, true);
     assert.equal(parsed.security.redactSensitiveContent, true);
   } finally {
@@ -1190,6 +1223,8 @@ run("doctor reports missing dependencies as actionable warnings", async () => {
     const npmCheck = result.checks.find((check) => check.id === "npm");
     const scanSafetyCheck = result.checks.find((check) => check.id === "scan-safety");
     const taskSafetyCheck = result.checks.find((check) => check.id === "task-safety-gate");
+    const focusSafetyCheck = result.checks.find((check) => check.id === "focus-safety-gate");
+    const memoryBackendCheck = result.checks.find((check) => check.id === "memory-backend");
 
     assert.ok(dependencyCheck);
     assert.equal(dependencyCheck.status, "warn");
@@ -1201,6 +1236,11 @@ run("doctor reports missing dependencies as actionable warnings", async () => {
     assert.ok(taskSafetyCheck);
     assert.equal(taskSafetyCheck.status, "warn");
     assert.match(taskSafetyCheck.fix, /requirePlanForWrite/i);
+    assert.ok(focusSafetyCheck);
+    assert.equal(focusSafetyCheck.status, "pass");
+    assert.ok(memoryBackendCheck);
+    assert.equal(memoryBackendCheck.status, "pass");
+    assert.match(memoryBackendCheck.detail, /engram primary \+ local fallback/i);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -1235,6 +1275,48 @@ run("doctor warns when security protections are relaxed", async () => {
     assert.ok(scanSafetyCheck);
     assert.equal(scanSafetyCheck.status, "warn");
     assert.match(scanSafetyCheck.fix, /ignoreSensitiveFiles/i);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("doctor reports local-only backend and skips Engram path warnings", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-doctor-local-only-"));
+
+  try {
+    await writeFile(
+      path.join(tempRoot, "package.json"),
+      JSON.stringify({ name: "doctor-local-only-fixture" }, null, 2),
+      "utf8"
+    );
+
+    const config = defaultProjectConfig();
+    config.project = "doctor-local-only-fixture";
+    config.workspace = ".";
+    config.memory.backend = "local-only";
+
+    const result = await runProjectDoctor({
+      cwd: tempRoot,
+      configInfo: {
+        found: true,
+        path: path.join(tempRoot, "learning-context.config.json"),
+        config
+      }
+    });
+
+    const backendCheck = result.checks.find((check) => check.id === "memory-backend");
+    const binaryCheck = result.checks.find((check) => check.id === "engram-binary");
+    const dataCheck = result.checks.find((check) => check.id === "engram-data");
+
+    assert.ok(backendCheck);
+    assert.equal(backendCheck.status, "warn");
+    assert.match(backendCheck.detail, /local-only/i);
+    assert.ok(binaryCheck);
+    assert.equal(binaryCheck.status, "pass");
+    assert.match(binaryCheck.detail, /skipped because memory\.backend='local-only'/i);
+    assert.ok(dataCheck);
+    assert.equal(dataCheck.status, "pass");
+    assert.match(dataCheck.detail, /skipped because memory\.backend='local-only'/i);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -1945,6 +2027,64 @@ run("release discipline evaluator fails when current release has no Contracts su
   );
 });
 
+run("north star gate passes when prevented-error metrics meet thresholds", () => {
+  const result = evaluateNorthStarGate({
+    observability: {
+      found: true,
+      filePath: ".lcs/observability.json",
+      totals: {
+        runs: 120,
+        degradedRuns: 4,
+        blockedRuns: 12,
+        preventedErrors: 9,
+        degradedRate: 0.033
+      }
+    },
+    thresholds: {
+      minRuns: 100,
+      minBlockedRuns: 10,
+      minPreventedErrors: 8,
+      minPreventedErrorRate: 0.05,
+      maxDegradedRate: 0.1
+    }
+  });
+
+  assert.equal(result.passed, true);
+  assert.equal(result.failures.length, 0);
+  assert.equal(result.metrics.preventedErrorRate, 0.075);
+  assert.equal(result.metrics.blockedCoverage, 0.75);
+  assert.match(formatNorthStarGateReport(result), /passed: yes/);
+});
+
+run("north star gate fails when prevention signal is too low", () => {
+  const result = evaluateNorthStarGate({
+    observability: {
+      found: true,
+      filePath: ".lcs/observability.json",
+      totals: {
+        runs: 80,
+        degradedRuns: 12,
+        blockedRuns: 1,
+        preventedErrors: 0,
+        degradedRate: 0.15
+      }
+    },
+    thresholds: {
+      minRuns: 50,
+      minBlockedRuns: 1,
+      minPreventedErrors: 1,
+      minPreventedErrorRate: 0.01,
+      maxDegradedRate: 0.12
+    }
+  });
+
+  assert.equal(result.passed, false);
+  assert.equal(result.failures.some((line) => /preventedErrors=0/i.test(line)), true);
+  assert.equal(result.failures.some((line) => /preventedErrorRate=0/i.test(line)), true);
+  assert.equal(result.failures.some((line) => /degradedRate=0.15/i.test(line)), true);
+  assert.match(formatNorthStarGateReport(result), /passed: no/);
+});
+
 run("readme generator infers concepts and reading order", async () => {
   const workspace = await loadWorkspaceChunks(".");
   const result = await buildLearningReadme({
@@ -2144,6 +2284,94 @@ run("engram client wraps timeout errors and keeps stderr detail", async () => {
       }),
     /query timed out after 10s/
   );
+});
+
+run("local memory store saves and searches memories with engram-like output", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-local-memory-store-"));
+  const store = createLocalMemoryStore({
+    filePath: path.join(tempRoot, "memory-store.jsonl")
+  });
+
+  try {
+    await store.saveMemory({
+      title: "Auth validation order",
+      content: "Reject invalid tokens before route handlers.",
+      type: "decision",
+      project: "learning-context-system",
+      scope: "project"
+    });
+    await store.saveMemory({
+      title: "Rate-limit middleware",
+      content: "Throttle abusive IP ranges to protect auth endpoints.",
+      type: "architecture",
+      project: "learning-context-system",
+      scope: "project"
+    });
+
+    const result = await store.searchMemories("auth validation", {
+      project: "learning-context-system",
+      scope: "project",
+      limit: 5
+    });
+
+    assert.match(result.stdout, /Found 1 memories:/);
+    assert.match(result.stdout, /Auth validation order/);
+    const chunks = searchOutputToChunks(result.stdout, {
+      query: "auth validation",
+      project: "learning-context-system"
+    });
+    assert.equal(chunks.length, 1);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("resilient memory client falls back to local store when Engram search fails", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-resilient-memory-"));
+  const fallback = createLocalMemoryStore({
+    filePath: path.join(tempRoot, "memory-store.jsonl")
+  });
+  await fallback.saveMemory({
+    title: "CLI integration memory",
+    content: "Durable memory now enters teach packets.",
+    type: "architecture",
+    project: "learning-context-system",
+    scope: "project"
+  });
+
+  const resilient = createResilientMemoryClient({
+    primary: {
+      config: { dataDir: ".engram" },
+      async recallContext() {
+        throw new Error("engram offline");
+      },
+      async searchMemories() {
+        throw new Error("engram offline");
+      },
+      async saveMemory() {
+        throw new Error("engram offline");
+      },
+      async closeSession() {
+        throw new Error("engram offline");
+      }
+    },
+    fallback
+  });
+
+  try {
+    const result = await resilient.searchMemories("cli integration", {
+      project: "learning-context-system",
+      scope: "project",
+      limit: 5
+    });
+
+    assert.equal(result.provider, "local");
+    assert.equal(result.degraded, true);
+    assert.match(result.warning ?? "", /local fallback/i);
+    assert.match(result.stdout ?? "", /CLI integration memory/);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });
 
 run("close summary builder captures summary, learning, and next step", () => {
@@ -2843,6 +3071,91 @@ run("cli recall returns a degraded contract when Engram is unavailable", async (
   assert.match(parsed.error, /engram offline/);
 });
 
+run("cli recall can use local fallback memory store when Engram binary is missing", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-recall-fallback-"));
+  const fallbackFile = path.join(tempRoot, "fallback-memory.jsonl");
+
+  try {
+    const store = createLocalMemoryStore({
+      filePath: fallbackFile
+    });
+    await store.saveMemory({
+      title: "Auth boundary memory",
+      content: "Validate token before business logic.",
+      type: "architecture",
+      project: "learning-context-system",
+      scope: "project"
+    });
+
+    const result = await runCli([
+      "recall",
+      "--query",
+      "auth boundary",
+      "--project",
+      "learning-context-system",
+      "--engram-bin",
+      "tools/engram/missing-engram.exe",
+      "--local-memory-fallback",
+      "true",
+      "--memory-fallback-file",
+      fallbackFile,
+      "--format",
+      "json"
+    ]);
+
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(result.exitCode, 0);
+    assert.equal(parsed.degraded, true);
+    assert.equal(parsed.provider, "local");
+    assert.match(parsed.warnings[0], /local fallback memory store/i);
+    assert.match(parsed.stdout, /Auth boundary memory/);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("cli recall supports local-only backend without calling Engram", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-recall-local-only-"));
+  const fallbackFile = path.join(tempRoot, "fallback-memory.jsonl");
+
+  try {
+    const store = createLocalMemoryStore({
+      filePath: fallbackFile
+    });
+    await store.saveMemory({
+      title: "Local-only memory",
+      content: "Use local backend when Engram is optional.",
+      type: "pattern",
+      project: "learning-context-system",
+      scope: "project"
+    });
+
+    const result = await runCli([
+      "recall",
+      "--query",
+      "local-only memory",
+      "--project",
+      "learning-context-system",
+      "--memory-backend",
+      "local-only",
+      "--engram-bin",
+      "tools/engram/missing-engram.exe",
+      "--memory-fallback-file",
+      fallbackFile,
+      "--format",
+      "json"
+    ]);
+
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(result.exitCode, 0);
+    assert.equal(parsed.degraded, false);
+    assert.equal(parsed.provider, "local");
+    assert.match(parsed.stdout, /Local-only memory/);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 run("cli recall degraded mode classifies timeout failures", async () => {
   const fakeClient = {
     config: {
@@ -3055,6 +3368,40 @@ run("cli remember can be blocked by safety gate when write plan is not approved"
   }
 });
 
+run("cli remember falls back to local store when Engram binary is missing", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-remember-fallback-"));
+  const fallbackFile = path.join(tempRoot, "fallback-memory.jsonl");
+
+  try {
+    const result = await runCli([
+      "remember",
+      "--title",
+      "Fallback memory write",
+      "--content",
+      "Store this even when engram is down.",
+      "--project",
+      "learning-context-system",
+      "--engram-bin",
+      "tools/engram/missing-engram.exe",
+      "--local-memory-fallback",
+      "true",
+      "--memory-fallback-file",
+      fallbackFile,
+      "--format",
+      "json"
+    ]);
+
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(result.exitCode, 0);
+    assert.equal(parsed.degraded, true);
+    assert.equal(parsed.provider, "local");
+    assert.match(parsed.stdout, /Saved local memory/i);
+    assert.equal(parsed.warnings.some((entry) => /local fallback/i.test(entry)), true);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 run("cli teach can be blocked when token budget exceeds safety max", async () => {
   const configPath = path.join(process.cwd(), "test-safety-budget-config.json");
   const fakeClient = {
@@ -3116,6 +3463,51 @@ run("cli teach can be blocked when token budget exceeds safety max", async () =>
   } finally {
     await rm(configPath, { force: true });
   }
+});
+
+run("cli readme can be blocked when workspace scan has no explicit focus signal", async () => {
+  const result = await runCli([
+    "readme",
+    "--workspace",
+    ".",
+    "--format",
+    "json"
+  ]);
+
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(result.exitCode, 1);
+  assert.equal(parsed.status, "error");
+  assert.equal(parsed.command, "readme");
+  assert.equal(parsed.action, "blocked");
+  assert.equal(parsed.reason, "safety-gate");
+  assert.equal(
+    parsed.details.some((detail) => /explicit --focus/i.test(detail)),
+    true
+  );
+});
+
+run("cli select debug can be blocked when focus signal is weak", async () => {
+  const result = await runCli([
+    "select",
+    "--workspace",
+    ".",
+    "--focus",
+    "auth",
+    "--debug",
+    "--format",
+    "json"
+  ]);
+
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(result.exitCode, 1);
+  assert.equal(parsed.status, "error");
+  assert.equal(parsed.command, "select");
+  assert.equal(parsed.action, "blocked");
+  assert.equal(parsed.reason, "safety-gate");
+  assert.equal(
+    parsed.details.some((detail) => /stronger focus/i.test(detail)),
+    true
+  );
 });
 
 run("cli remember saves a durable memory through Engram", async () => {
@@ -3691,6 +4083,50 @@ run("cli teach respects config memory.autoRecall=false without requiring --no-re
   } finally {
     await rm(configPath, { force: true });
   }
+});
+
+run("cli teach skips auto recall for low-signal tasks without changed files", async () => {
+  let called = false;
+  const fakeClient = {
+    async recallContext() {
+      throw new Error("not used");
+    },
+    async searchMemories() {
+      called = true;
+      throw new Error("not used");
+    },
+    async saveMemory() {
+      throw new Error("not used");
+    },
+    async closeSession() {
+      throw new Error("not used");
+    }
+  };
+
+  const result = await runCli(
+    [
+      "teach",
+      "--input",
+      "examples/auth-context.json",
+      "--task",
+      "Fix typo",
+      "--objective",
+      "Quick patch",
+      "--format",
+      "json"
+    ],
+    {
+      engramClient: fakeClient
+    }
+  );
+
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(result.exitCode, 0);
+  assert.equal(called, false);
+  assert.equal(parsed.memoryRecall.status, "skipped");
+  assert.equal(parsed.memoryRecall.reason, "low-signal-task");
+  assert.equal(parsed.autoMemory.autoRecallEnabled, false);
+  assert.equal(parsed.warnings.some((entry) => /low-signal task/i.test(entry)), true);
 });
 
 run("cli teach emits a stable JSON contract and marks degraded recall", async () => {

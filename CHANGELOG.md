@@ -19,6 +19,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Notion sync now renders markdown-like note content as native Notion blocks (`heading_*`, `bulleted_list_item`, `numbered_list_item`, `paragraph`) so PR learnings are readable without raw markdown markers.
 - Added npm packaging gate (`npm run pack:check`) plus CI enforcement on Node 20 to verify tarball includes required publishable assets (`package.json`, `README.md`, `dist/cli.js`).
 - Added configurable task safety gate (`config.safety`) with pre-execution blocking for write-mode without plan approval, out-of-scope paths, and over-budget token windows; observability now tracks blocked/prevented events.
+- `teach` now skips automatic Engram recall for low-signal tasks (very short task/objective with no `--changed-files`) to avoid unnecessary memory/token cost unless the user provides stronger signals (`--changed-files` or `--recall-query`).
+- Added resilient memory fallback path: when Engram is unavailable, `recall`/`remember`/`close` (and memory-backed `teach`) can continue via local store `.lcs/local-memory-store.jsonl` with explicit degraded metadata/warnings.
+- Added explicit memory backend strategy (`memory.backend` / `--memory-backend`) with `resilient` (default), `engram-only`, and `local-only` modes; `doctor` now reports backend mode and skips Engram path warnings when backend is `local-only`.
+- Added formal North Star quality gate (`npm run northstar:check`) backed by observability metrics to enforce minimum prevented-error signal in CI.
+- Added cost-safety enforcement for workspace scans: explicit focus requirement, minimum focus length, and weak-focus debug blocking (`safety.requireExplicitFocusForWorkspaceScan`, `safety.minWorkspaceFocusLength`, `safety.blockDebugWithoutStrongFocus`).
 
 ### Contracts
 - Added v1 compatibility fixtures/tests for all JSON CLI commands (`version`, `doctor`, `init`, `sync-knowledge`, `ingest-security`, `select`, `teach`, `readme`, `recall`, `remember`, `close`).
