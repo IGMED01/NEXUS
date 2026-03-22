@@ -11,7 +11,8 @@
 /**
  * @typedef {Chunk & {
  *   origin: "engram" | "workspace",
- *   tokenCount: number
+ *   tokenCount: number,
+ *   tokens: string[]
  * }} PreparedChunk
  */
 
@@ -511,8 +512,8 @@ export function compressContent(content, focus = "", sentenceBudget = 3) {
  * @returns {ScoreChunkResult}
  */
 export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
-  const focusTokens = tokenize(focus);
-  const chunkTokens = tokenize(chunk.content);
+  const focusTokens = options._cachedFocusTokens || tokenize(focus);
+  const chunkTokens = options._cachedChunkTokens || chunk.tokens || tokenize(chunk.content);
   const overlap = overlapScore(chunkTokens, focusTokens);
   const density = densityScore(chunkTokens);
   const kindPrior = KIND_PRIOR[chunk.kind] ?? 0.5;
@@ -535,7 +536,7 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
   const redundancy = selectedChunks.length
     ? Math.max(
         ...selectedChunks.map((selected) =>
-          jaccardSimilarity(chunkTokens, tokenize(selected.content))
+          jaccardSimilarity(chunkTokens, selected.tokens || tokenize(selected.content))
         )
       )
     : 0;
@@ -605,13 +606,16 @@ export function selectContextWindow(chunks, options = {}) {
   /** @type {PreparedChunk[]} */
   const prepared = chunks.map((chunk) => {
     const compressedContent = compressContent(chunk.content, focus, sentenceBudget);
+    const tokens = tokenize(compressedContent);
     return {
       ...chunk,
       origin: chunkOrigin(chunk.source),
       content: compressedContent,
-      tokenCount: approximateTokenCount(compressedContent)
+      tokenCount: approximateTokenCount(compressedContent),
+      tokens
     };
   });
+  const focusTokens = tokenize(focus);
 
   /** @type {SelectedChunk[]} */
   const selected = [];
@@ -622,7 +626,7 @@ export function selectContextWindow(chunks, options = {}) {
   const ranked = prepared
     .map((chunk) => ({
       chunk,
-      score: scoreChunk(chunk, focus, [], { changedFiles }).total
+      score: scoreChunk(chunk, focus, [], { changedFiles, _cachedFocusTokens: focusTokens, _cachedChunkTokens: chunk.tokens }).total
     }))
     .sort((left, right) => right.score - left.score);
   const preparedById = new Map(prepared.map((chunk) => [chunk.id, chunk]));
@@ -664,7 +668,7 @@ export function selectContextWindow(chunks, options = {}) {
       return;
     }
 
-    const rescored = scoreChunk(entry.chunk, focus, selected, { changedFiles });
+    const rescored = scoreChunk(entry.chunk, focus, selected, { changedFiles, _cachedFocusTokens: focusTokens, _cachedChunkTokens: entry.chunk.tokens });
     const chunk = {
       ...entry.chunk,
       score: rescored.total,
@@ -747,7 +751,9 @@ export function selectContextWindow(chunks, options = {}) {
     evaluateEntry(entry, "general");
   }
 
-  while (true) {
+  let rebalanceIterations = 0;
+  while (rebalanceIterations < maxChunks) {
+    rebalanceIterations++;
     const selectedRecall = selected
       .map((chunk, index) => ({ chunk, index }))
       .filter((entry) => entry.chunk.origin === "engram")
@@ -787,7 +793,7 @@ export function selectContextWindow(chunks, options = {}) {
         continue;
       }
 
-      const rescored = scoreChunk(preparedCandidate, focus, selectedWithoutRecall, { changedFiles });
+      const rescored = scoreChunk(preparedCandidate, focus, selectedWithoutRecall, { changedFiles, _cachedFocusTokens: focusTokens, _cachedChunkTokens: preparedCandidate.tokens });
       const candidate = {
         ...preparedCandidate,
         score: rescored.total,

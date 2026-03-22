@@ -9,6 +9,7 @@ export interface Chunk {
   recency?: number;
   teachingValue?: number;
   priority?: number;
+  tokens?: string[];
 }
 
 export interface ChunkFile {
@@ -70,6 +71,8 @@ export interface SelectionOptions {
   sentenceBudget?: number;
   changedFiles?: string[];
   recallReserveRatio?: number;
+  _cachedFocusTokens?: string[];
+  _cachedChunkTokens?: string[];
 }
 
 export interface ContextSelectionResult {
