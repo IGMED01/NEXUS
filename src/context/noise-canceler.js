@@ -746,6 +746,8 @@ export function selectContextWindow(chunks, options = {}) {
     evaluateEntry(entry, "general");
   }
 
+  selected.sort((left, right) => right.score - left.score);
+
   return {
     focus,
     tokenBudget,
