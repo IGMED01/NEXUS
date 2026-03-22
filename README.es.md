@@ -1,6 +1,6 @@
 # Learning Context System - Resumen en espanol
 
-Learning Context System es una CLI experimental para **programar, ensenar y controlar contexto al mismo tiempo**.
+Learning Context System es una CLI para **programar, ensenar y controlar contexto al mismo tiempo**.
 
 ## Que hace este proyecto
 
@@ -110,19 +110,17 @@ Este repositorio fue implementado como trabajo original, pero deja explicitas la
 
 Estos proyectos aparecen como creditos e inspiracion arquitectonica. No deben figurar como contributors de este repo salvo que hagan commits aqui.
 
-## Que no es este proyecto
+## Estado del proyecto
 
-No es todavia:
+Hoy es una herramienta local usable y mantenida para flujos reales de trabajo.
 
-- un framework maduro
-- una plataforma multiagente cerrada
-- un producto terminado
+Incluye:
 
-Si es hoy:
-
-- un prototipo serio
-- una herramienta local usable
-- un experimento medible con benchmarks
+- seleccion de contexto con supresion de ruido
+- paquete pedagogico con `teach`
+- memoria durable con Engram y modo degradado
+- contratos JSON estables para automatizacion
+- gates de calidad en CI (tests, typecheck, build y benchmarks)
 
 ## Mapa rapido del repo
 
