@@ -69,6 +69,7 @@ export interface SelectionOptions {
   minScore?: number;
   sentenceBudget?: number;
   changedFiles?: string[];
+  recallReserveRatio?: number;
 }
 
 export interface ContextSelectionResult {

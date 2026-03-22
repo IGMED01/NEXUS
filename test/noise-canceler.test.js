@@ -264,6 +264,108 @@ test("mixed workspace+engram chunks respect budget without origin bias", () => {
   }
 });
 
+test("two-pass selection reserves room for recalled memory", () => {
+  const chunks = [
+    {
+      id: "ws-teach",
+      source: "src/cli/teach-command.js",
+      kind: "code",
+      content:
+        "Teach command builds packet output, validates options, and serializes observability metadata.",
+      certainty: 0.95,
+      recency: 0.92,
+      teachingValue: 0.9,
+      priority: 0.94
+    },
+    {
+      id: "ws-loop",
+      source: "src/learning/mentor-loop.js",
+      kind: "code",
+      content:
+        "Mentor loop maps selected context to teaching sections and highlights code focus plus related tests.",
+      certainty: 0.93,
+      recency: 0.9,
+      teachingValue: 0.88,
+      priority: 0.9
+    },
+    {
+      id: "engram-memory-critical-path",
+      source: "engram://project/learning-context-system/memory/critical-path-hardening",
+      kind: "memory",
+      content:
+        "Memory type: decision. Preserve recall disposition in teach outputs and keep memory context visible during selection.",
+      certainty: 0.92,
+      recency: 0.8,
+      teachingValue: 0.86,
+      priority: 0.88
+    }
+  ];
+
+  const result = selectContextWindow(chunks, {
+    focus: "teach command recall disposition memory context",
+    tokenBudget: 180,
+    maxChunks: 2,
+    minScore: 0.2,
+    changedFiles: ["src/cli/teach-command.js", "src/learning/mentor-loop.js"],
+    recallReserveRatio: 0.15
+  });
+
+  assert.equal(result.selected.length, 2, "should select exactly maxChunks");
+  assert.ok(
+    result.selected.some((chunk) => chunk.origin === "engram"),
+    "should keep at least one recalled memory chunk"
+  );
+  assert.ok(
+    result.selected.some((chunk) => chunk.origin === "workspace"),
+    "should still include workspace implementation context"
+  );
+});
+
+test("buildLearningPacket always exposes chunk origin in JSON output", () => {
+  const packet = buildLearningPacket({
+    task: "Harden selection output",
+    objective: "Expose stable origin metadata without debug mode",
+    changedFiles: ["src/learning/mentor-loop.js"],
+    maxChunks: 1,
+    chunks: [
+      {
+        id: "code-origin",
+        source: "src/learning/mentor-loop.js",
+        kind: "code",
+        content: "Packet builder maps selected context into JSON output contracts.",
+        certainty: 0.95,
+        recency: 0.9,
+        teachingValue: 0.85,
+        priority: 0.92
+      },
+      {
+        id: "engram-origin",
+        source: "engram://project/learning-context-system/memory/output-origin",
+        kind: "memory",
+        content:
+          "Memory type: architecture. Selected and suppressed entries should keep origin metadata for downstream analytics.",
+        certainty: 0.85,
+        recency: 0.7,
+        teachingValue: 0.8,
+        priority: 0.8
+      }
+    ]
+  });
+
+  assert.ok(packet.selectedContext.length >= 1, "selected context should not be empty");
+  assert.ok(
+    packet.selectedContext.every((chunk) => chunk.origin === "workspace" || chunk.origin === "engram"),
+    "selected chunk origin should always be present"
+  );
+  assert.ok(packet.suppressedContext.length >= 1, "suppressed context should include at least one item");
+  assert.ok(
+    packet.suppressedContext.every(
+      (chunk) => chunk.origin === "workspace" || chunk.origin === "engram"
+    ),
+    "suppressed chunk origin should always be present"
+  );
+});
+
 test("recalled memory survives selection against workspace scan noise", () => {
   const workspaceChunks = [
     {
