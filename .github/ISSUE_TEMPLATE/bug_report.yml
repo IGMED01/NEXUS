@@ -37,7 +37,7 @@ body:
     id: version
     attributes:
       label: Commit o release
-      placeholder: e.g. 1cea56f o v0.1.0-experimental
+      placeholder: e.g. 1cea56f o v0.2.1
     validations:
       required: true
 

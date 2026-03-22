@@ -69,6 +69,6 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ## [0.1.0] - 2026-03-17
 
 ### Added
-- Initial experimental CLI for context selection, teaching packet generation, and Engram-backed memory commands.
+- Initial CLI for context selection, teaching packet generation, and Engram-backed memory commands.
 - Selector and recall benchmark harnesses.
 - TypeScript backend vertical example for middleware/auth teaching flows.

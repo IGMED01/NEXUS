@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-This project is still experimental. Security fixes are applied on `main` first.
+This project is actively maintained. Security fixes are applied on `main` first.
 
 | Version | Supported |
 | ------- | --------- |
