@@ -12,7 +12,9 @@
  * @typedef {Chunk & {
  *   origin: "engram" | "workspace",
  *   tokenCount: number,
- *   tokens: string[]
+ *   tokens: string[],
+ *   retrievalScore?: number,
+ *   vectorScore?: number
  * }} PreparedChunk
  */
 
@@ -78,6 +80,13 @@ const DEFAULT_RECALL_RESERVE_RATIO = 0.15;
  */
 function clamp(value, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
+}
+
+/**
+ * @param {unknown} value
+ */
+function asNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 /**
@@ -200,6 +209,15 @@ function chunkOrigin(source = "") {
  */
 function recallBoost(source = "") {
   return normalizeSource(source).startsWith("engram://") ? 0.12 : 0;
+}
+
+/**
+ * @param {Chunk} chunk
+ */
+function retrievalSignal(chunk) {
+  const lexical = clamp(asNumber(chunk.retrievalScore));
+  const vector = clamp(asNumber(chunk.vectorScore));
+  return clamp(lexical * 0.6 + vector * 0.4);
 }
 
 /**
@@ -532,6 +550,21 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
   const narrativePenalty = narrativeMemoryPenalty(chunk);
   const implementationFit = implementationFitScore(chunk, changedFiles);
   const recallOriginBoost = recallBoost(chunk.source);
+  const retrievalBoost = retrievalSignal(chunk);
+  const customScorerInput = {
+    chunk,
+    focus,
+    selectedChunks,
+    options
+  };
+  const customScorerFns = Array.isArray(options.customScorers)
+    ? options.customScorers.filter((entry) => typeof entry === "function")
+    : [];
+  const customBoost = clamp(
+    customScorerFns.reduce((total, scorer) => total + asNumber(scorer(customScorerInput)), 0),
+    -0.4,
+    0.4
+  );
 
   const redundancy = selectedChunks.length
     ? Math.max(
@@ -551,9 +584,11 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
     density * 0.03 +
     sourceAffinity * 0.1 +
     implementationFit * 0.12 +
+    retrievalBoost * 0.08 +
     changeAnchor * changeAnchorWeight +
     relatedTestBoost * 0.04 +
-    recallOriginBoost * 0.09;
+    recallOriginBoost * 0.09 +
+    customBoost * 0.1;
 
   const penalty =
     redundancy * 0.22 +
@@ -579,6 +614,8 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
       sourcePenalty,
       genericRunnerPenalty,
       implementationFit,
+      retrievalBoost,
+      customBoost,
       recallOriginBoost,
       narrativePenalty,
       redundancy,
@@ -771,7 +808,7 @@ export function selectContextWindow(chunks, options = {}) {
 
     const recallEntry = selectedRecall[0];
 
-    if (!recallEntry || !workspaceCandidates.length) {
+    if (!recallEntry || !workspaceCandidates.length || selectedRecall.length <= 1) {
       break;
     }
 

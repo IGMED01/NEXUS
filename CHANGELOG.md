@@ -7,10 +7,26 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+- Added `NEXUS-PLAN.md` to track the full 11-layer execution checklist by phase (`FASE 1..4`) with dependencies, priorities, and completion status.
+- Added NEXUS runtime layers and modules:
+  - `src/processing/*` (structure parser, chunker, metadata tagger, entity extractor)
+  - `src/storage/*` (chunk repository, BM25 index, hybrid retriever, vector-store interface)
+  - `src/guard/*` (output guard, compliance checker, output auditor)
+  - `src/llm/*` (provider registry, Claude provider, prompt builder, context injector, response parser)
+  - `src/orchestration/*` (pipeline builder + default step executors)
+  - `src/sync/*` (change detector, version tracker, sync scheduler)
+  - `src/eval/*` (consistency scorer + CI gate)
+  - `src/versioning/*` (prompt version store + rollback planner)
+  - `src/api/*` (auth middleware + HTTP server endpoints)
+- Added dashboard aggregation adapter `src/observability/dashboard-data.js`.
+- Added local API launcher `scripts/run-nexus-api.js` and npm script `api:nexus`.
+
 ### Docs
 - Clarified the repository direction: the current ecosystem is **one LCS repo with five internal domains**, not a multi-repo product suite yet.
 - Added `docs/repo-split-5-repos.md` to explain the real split strategy: modularize first, extract later.
 - Updated `README.md`, `README.es.md`, `ROADMAP.md`, and `docs/status-actual.md` so GitHub explains exactly what the ecosystem is and how mature each area is.
+- Updated `docs/usage.md` with the active NEXUS API surface and auth model.
 
 ### Performance
 - Cached `focusTokens` once per `selectContextWindow` call instead of re-tokenizing per chunk, eliminating O(n) redundant tokenizations.
@@ -19,6 +35,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Extended `Chunk` interface with optional `tokens` field and `SelectionOptions` with internal cache hints (`_cachedFocusTokens`, `_cachedChunkTokens`).
 
 ### Changed
+- Workspace scanning now integrates NEXUS processing stage output (section-aware chunking, metadata tags, and entity extraction) before context selection.
+- Local memory fallback store now persists through the chunk repository layer (NEXUS storage unification).
+- `selectContextWindow` now supports retrieval-aware scoring (`retrievalScore`, `vectorScore`) plus custom scorer hooks.
+- Output guard now includes functional `domain-scope` enforcement in addition to secret/policy checks.
+- Notion sync now includes paginated child listing and delta append mode.
+- Config contracts now include `llm.*` runtime/auth defaults (`provider`, `model`, `temperature`, `maxTokens`, `tokenBudget`, `maxContextChunks`, `requireAuth`, `apiKeys`).
 - Added `.ts` build-track sources for memory teach orchestration (`src/memory/teach-recall.ts`, `src/memory/engram-auto-orchestrator.ts`) and wired TypeScript configs to prefer those sources during typecheck/build.
 - Added `.ts` build-track source for Engram adapter execution/parsing (`src/memory/engram-client.ts`) and wired TypeScript configs to prefer it during typecheck/build.
 - Added Notion team-knowledge sync command (`sync-knowledge`) that appends structured notes to a target page using token + page-id configuration.
@@ -39,6 +61,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Contracts
 - Added v1 compatibility fixtures/tests for all JSON CLI commands (`version`, `doctor`, `init`, `sync-knowledge`, `ingest-security`, `select`, `teach`, `readme`, `recall`, `remember`, `close`).
 - Added degraded recall contract coverage for `malformed-output` classification in `recall --format json`.
+- Added portable test coverage for all newly introduced NEXUS layers (`NEXUS:0..10`) including API/auth/pipeline/evals/versioning paths.
 - No breaking JSON contract change.
 
 ## [0.2.1] - 2026-03-18

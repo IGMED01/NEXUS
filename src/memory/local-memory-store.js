@@ -1,7 +1,7 @@
 // @ts-check
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createChunkRepository } from "../storage/chunk-repository.js";
 import { buildCloseSummaryContent } from "./engram-client.js";
 
 /**
@@ -49,72 +49,49 @@ function truncate(value, maxLength) {
 }
 
 /**
- * @param {string} filePath
- * @returns {Promise<LocalMemoryEntry[]>}
+ * @param {unknown} value
  */
-async function readEntries(filePath) {
-  try {
-    const raw = await readFile(filePath, "utf8");
-    const lines = raw
-      .split(/\r?\n/u)
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    /** @type {LocalMemoryEntry[]} */
-    const entries = [];
-
-    for (const line of lines) {
-      try {
-        const parsed = JSON.parse(line);
-
-        if (!parsed || typeof parsed !== "object") {
-          continue;
-        }
-
-        const candidate = /** @type {Record<string, unknown>} */ (parsed);
-        const createdAt =
-          typeof candidate.createdAt === "string" && candidate.createdAt
-            ? candidate.createdAt
-            : new Date().toISOString();
-
-        entries.push({
-          id: typeof candidate.id === "string" ? candidate.id : slugify(createdAt),
-          title: typeof candidate.title === "string" ? candidate.title : "Untitled memory",
-          content: typeof candidate.content === "string" ? candidate.content : "",
-          type: typeof candidate.type === "string" ? candidate.type : "learning",
-          project: typeof candidate.project === "string" ? candidate.project : "",
-          scope: typeof candidate.scope === "string" ? candidate.scope : "project",
-          topic: typeof candidate.topic === "string" ? candidate.topic : "",
-          createdAt
-        });
-      } catch {
-        // ignore malformed local line
-      }
-    }
-
-    return entries;
-  } catch (error) {
-    if (
-      typeof error === "object" &&
-      error &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
-      return [];
-    }
-
-    throw error;
-  }
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? /** @type {Record<string, unknown>} */ (value)
+    : {};
 }
 
 /**
- * @param {string} filePath
- * @param {LocalMemoryEntry[]} entries
+ * @param {Array<{ id: string, content: string, metadata?: Record<string, unknown> }>} chunks
  */
-async function writeEntries(filePath, entries) {
-  await mkdir(path.dirname(filePath), { recursive: true });
-  const payload = entries.map((entry) => JSON.stringify(entry)).join("\n");
-  await writeFile(filePath, payload ? `${payload}\n` : "", "utf8");
+function mapChunksToEntries(chunks) {
+  return chunks
+    .map((chunk) => {
+      const metadata = asRecord(chunk.metadata);
+      const createdAt =
+        typeof metadata.createdAt === "string" && metadata.createdAt
+          ? metadata.createdAt
+          : new Date().toISOString();
+
+      return {
+        id: chunk.id,
+        title:
+          typeof metadata.title === "string" && metadata.title
+            ? metadata.title
+            : "Untitled memory",
+        content: chunk.content,
+        type:
+          typeof metadata.type === "string" && metadata.type
+            ? metadata.type
+            : "learning",
+        project:
+          typeof metadata.project === "string" ? metadata.project : "",
+        scope:
+          typeof metadata.scope === "string" && metadata.scope
+            ? metadata.scope
+            : "project",
+        topic:
+          typeof metadata.topic === "string" ? metadata.topic : "",
+        createdAt
+      };
+    })
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 /**
@@ -156,9 +133,7 @@ function filterEntries(entries, options) {
     return queryTokens.every((token) => haystack.includes(token));
   });
 
-  return filtered
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-    .slice(0, limit);
+  return filtered.slice(0, limit);
 }
 
 /**
@@ -221,15 +196,26 @@ export function createLocalMemoryStore(options = {}) {
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const filePath = path.resolve(cwd, options.filePath ?? ".lcs/local-memory-store.jsonl");
   const dataDir = path.dirname(filePath);
+  const repository = createChunkRepository({
+    filePath
+  });
+
+  async function readEntries() {
+    const chunks = await repository.listChunks({
+      kind: "memory",
+      limit: Number.MAX_SAFE_INTEGER
+    });
+
+    return mapChunksToEntries(chunks);
+  }
 
   /**
    * @param {string} [project]
    */
   async function recallContext(project) {
-    const entries = await readEntries(filePath);
+    const entries = await readEntries();
     const filtered = entries
       .filter((entry) => !project || !entry.project || entry.project === project)
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .slice(0, 5);
 
     return {
@@ -252,7 +238,7 @@ export function createLocalMemoryStore(options = {}) {
    * @param {{ project?: string, scope?: string, type?: string, limit?: number }} [options]
    */
   async function searchMemories(query, options = {}) {
-    const entries = await readEntries(filePath);
+    const entries = await readEntries();
     const filtered = filterEntries(entries, {
       query,
       project: options.project,
@@ -287,7 +273,6 @@ export function createLocalMemoryStore(options = {}) {
    * }} input
    */
   async function saveMemory(input) {
-    const entries = await readEntries(filePath);
     const createdAt = new Date().toISOString();
     const id = `${createdAt.replace(/[-:.TZ]/gu, "")}-${slugify(input.title).slice(0, 20)}`;
     const entry = {
@@ -300,8 +285,21 @@ export function createLocalMemoryStore(options = {}) {
       topic: input.topic ?? "",
       createdAt
     };
-    entries.push(entry);
-    await writeEntries(filePath, entries);
+
+    await repository.upsertChunk({
+      id: entry.id,
+      source: `local-memory://${entry.project || "default"}/${entry.id}`,
+      kind: "memory",
+      content: entry.content,
+      metadata: {
+        title: entry.title,
+        type: entry.type,
+        project: entry.project,
+        scope: entry.scope,
+        topic: entry.topic,
+        createdAt: entry.createdAt
+      }
+    });
 
     return {
       action: "save",

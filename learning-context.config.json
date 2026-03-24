@@ -43,5 +43,15 @@
     "requireExplicitFocusForWorkspaceScan": true,
     "minWorkspaceFocusLength": 24,
     "blockDebugWithoutStrongFocus": true
+  },
+  "llm": {
+    "provider": "claude",
+    "model": "claude-3-5-sonnet-20241022",
+    "temperature": 0.2,
+    "maxTokens": 700,
+    "tokenBudget": 520,
+    "maxContextChunks": 8,
+    "requireAuth": true,
+    "apiKeys": []
   }
 }

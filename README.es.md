@@ -10,6 +10,14 @@ Este repo hace tres cosas juntas:
 2. **explica el codigo y el cambio**
 3. **recuerda decisiones duraderas**
 
+## Convencion de nombres (NEXUS)
+
+- **NEXUS** = plataforma completa (11 capas)
+- **LCS** = motor de contexto (`NEXUS:3`)
+- **NEXUS:N** = referencia directa de capa (ej. `NEXUS:6` = LLM Layer)
+
+El detalle operativo por fase/capa (checkboxes, dependencias y prioridades) esta en **`NEXUS-PLAN.md`**.
+
 Ademas, ya puede sincronizar aprendizajes de PR mergeados hacia Notion como capa opcional de conocimiento de equipo.
 
 ## Que es exactamente este ecosistema
@@ -188,17 +196,17 @@ Esta es la foto actual del ecosistema:
 
 | Area | Madurez |
 |---|---:|
-| Sync | 35% |
-| Processing | 30% |
-| Storage | 45% |
-| LCS Core | 90% |
-| Guard | 65% |
-| Orchestration | 80% |
-| LLM Layer | 10% |
-| Evals | 70% |
-| Observability | 85% |
-| Versioning | 85% |
-| Interface | 40% |
+| Sync | 60% |
+| Processing | 75% |
+| Storage | 75% |
+| LCS Core | 92% |
+| Guard | 88% |
+| Orchestration | 90% |
+| LLM Layer | 65% |
+| Evals | 85% |
+| Observability | 90% |
+| Versioning | 90% |
+| Interface | 75% |
 
 Lectura correcta:
 
@@ -225,11 +233,22 @@ Lectura correcta:
 - `VERSIONING.md`: politica para alinear version de paquete, tags y releases
 - `src/ci/pr-learnings.js`: mapeador de metadata de PR mergeada hacia payload de aprendizaje durable
 - `src/context/noise-canceler.js`: selector de contexto
+- `src/processing/`: capa NEXUS de procesamiento (estructura, chunking, metadata, entidades)
+- `src/storage/`: capa NEXUS de storage (repositorio de chunks, BM25, retriever hibrido)
+- `src/guard/`: guard de salida, compliance y auditoria
 - `src/learning/mentor-loop.js`: paquete pedagogico
 - `src/memory/engram-client.js` / `src/memory/engram-client.ts`: adaptador local a Engram (runtime JS + pista de build TS)
+- `src/llm/`: registro de providers, adapter Claude, prompt builder y response parser
+- `src/orchestration/`: pipeline builder dinamico y executors por defecto
+- `src/sync/`: change detector, version tracker y scheduler de sync
+- `src/eval/`: consistency scorer + CI gate
 - `src/observability/metrics-store.js`: almacenamiento local de metricas de comandos y reporte agregado
+- `src/observability/dashboard-data.js`: payload agregado para dashboard
+- `src/versioning/`: versionado de prompts y plan de rollback
+- `src/api/`: auth middleware y servidor HTTP (`/api/ask`, `/api/guard/output`, `/api/sync`)
 - `src/security/prowler-ingest.js`: convertidor de findings JSON de Prowler a JSON de chunks compatible con la CLI
 - `scripts/sync-pr-learnings.js`: helper de CI para sincronizar aprendizajes de PR mergeadas hacia Notion usando `sync-knowledge`
+- `scripts/run-nexus-api.js`: launcher local de la API NEXUS
 - `examples/typescript-backend/`: vertical real de TypeScript backend
 
 ## Mapa interno por dominios
@@ -297,6 +316,7 @@ npm run benchmark
 npm run benchmark:recall
 npm run benchmark:vertical
 npm run security:pipeline:example
+npm run api:nexus
 ```
 
 `security:pipeline:example` incluye un gate de calidad por defecto (`min-included-findings=1`, `min-selected-teach-chunks=1`, `min-priority=0.84`).
@@ -325,6 +345,8 @@ Ese archivo es el lugar oficial para definir:
 - defaults de automatizacion de memoria (`memory.autoRecall`, `memory.autoRemember`)
 - modo de backend de memoria (`memory.backend`: `resilient`, `engram-only`, `local-only`)
 - rutas de Engram
+- defaults de LLM (`llm.provider`, `llm.model`, `llm.temperature`, `llm.maxTokens`)
+- defaults de auth para API (`llm.requireAuth`, `llm.apiKeys`)
 - defaults y overrides de seguridad del escaneo
 - seguridad de ejecucion para escaneos de workspace con baja senal (`safety.requireExplicitFocusForWorkspaceScan`, `safety.minWorkspaceFocusLength`, `safety.blockDebugWithoutStrongFocus`)
 

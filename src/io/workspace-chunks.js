@@ -2,6 +2,9 @@
 
 import { readFile, readdir } from "node:fs/promises";
 import { extname, relative, resolve } from "node:path";
+import { chunkDocument } from "../processing/chunker.js";
+import { extractEntities } from "../processing/entity-extractor.js";
+import { tagChunkMetadata } from "../processing/metadata-tagger.js";
 
 import {
   createSecurityScanStats,
@@ -39,8 +42,17 @@ import {
 
 /**
  * @typedef {{
+ *   chunkBySection?: boolean,
+ *   maxCharsPerChunk?: number,
+ *   extractEntities?: boolean
+ * }} WorkspaceProcessingOptions
+ */
+
+/**
+ * @typedef {{
  *   security?: WorkspaceSecurityOptions
  *   scan?: WorkspaceScanOptions
+ *   processing?: WorkspaceProcessingOptions
  * }} LoadWorkspaceChunksOptions
  */
 
@@ -291,16 +303,52 @@ export async function loadWorkspaceChunks(rootPath, options = {}) {
       stats.security.connectionStrings += redaction.breakdown.connectionStrings;
     }
 
-    /** @type {Chunk} */
-    const chunk = {
-      id: file.source,
-      source: file.source,
-      kind,
-      content,
-      ...defaultSignals(kind)
-    };
+    const processingEnabled = options.processing?.chunkBySection !== false;
+    const processedChunks = processingEnabled
+      ? chunkDocument(content, {
+          source: file.source,
+          maxCharsPerChunk: Math.max(500, Number(options.processing?.maxCharsPerChunk ?? 1800))
+        })
+      : [
+          {
+            id: file.source,
+            content,
+            metadata: {
+              source: file.source,
+              sectionTitle: "document",
+              sectionLevel: 1,
+              startLine: 0,
+              endLine: 0,
+              index: 0
+            }
+          }
+        ];
 
-    chunks.push(chunk);
+    for (const processed of processedChunks) {
+      const tags = tagChunkMetadata({
+        source: file.source,
+        kind,
+        content: processed.content
+      });
+      const entities = options.processing?.extractEntities === false ? [] : extractEntities(processed.content);
+      /** @type {Chunk} */
+      const chunk = {
+        id: processed.id || file.source,
+        source: file.source,
+        kind,
+        content: processed.content,
+        ...defaultSignals(kind)
+      };
+
+      // non-contract metadata for downstream adapters (NEXUS:1)
+      /** @type {Record<string, unknown>} */ (chunk).processing = {
+        section: processed.metadata,
+        tags,
+        entities
+      };
+
+      chunks.push(chunk);
+    }
   }
 
   return {

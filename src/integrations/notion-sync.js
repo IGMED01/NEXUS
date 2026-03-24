@@ -388,11 +388,12 @@ export function buildKnowledgeBlocks(title, meta, timestamp) {
 /**
  * @param {NotionResolvedConfig} config
  * @param {NotionFetch} fetchImpl
- * @param {"POST" | "PATCH"} method
+ * @param {"GET" | "POST" | "PATCH"} method
  * @param {string} path
- * @param {object} payload
+ * @param {object | null} payload
  */
-async function postNotion(config, fetchImpl, method, path, payload) {
+async function requestNotion(config, fetchImpl, method, path, payload) {
+  const hasBody = payload && method !== "GET";
   const response = await fetchImpl(`${config.apiBaseUrl}${path}`, {
     method,
     headers: {
@@ -400,7 +401,7 @@ async function postNotion(config, fetchImpl, method, path, payload) {
       "Notion-Version": NOTION_API_VERSION,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(payload)
+    body: hasBody ? JSON.stringify(payload) : undefined
   });
   const raw = await response.text();
   let parsed = {};
@@ -420,6 +421,40 @@ async function postNotion(config, fetchImpl, method, path, payload) {
   }
 
   return parsed;
+}
+
+/**
+ * @param {Record<string, unknown>} block
+ */
+function blockToInlineText(block) {
+  if (!block || typeof block !== "object") {
+    return "";
+  }
+
+  const type = typeof block.type === "string" ? block.type : "";
+
+  if (!type || !(type in block)) {
+    return "";
+  }
+
+  const payload = /** @type {Record<string, unknown>} */ (block[type]);
+  const richText = Array.isArray(payload?.rich_text) ? payload.rich_text : [];
+
+  return richText
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return "";
+      }
+
+      const value = /** @type {Record<string, unknown>} */ (entry);
+      const text = value.text && typeof value.text === "object"
+        ? /** @type {Record<string, unknown>} */ (value.text).content
+        : "";
+
+      return typeof text === "string" ? text : "";
+    })
+    .filter(Boolean)
+    .join("");
 }
 
 /**
@@ -495,7 +530,7 @@ export function createNotionSyncClient(options = {}) {
 
     for (const candidate of pageIdCandidates) {
       try {
-        await postNotion(
+        await requestNotion(
           config,
           fetchImpl,
           "PATCH",
@@ -532,8 +567,117 @@ export function createNotionSyncClient(options = {}) {
     };
   }
 
+  /**
+   * @param {{ pageId?: string, pageSize?: number }} [options]
+   */
+  async function listChildren(options = {}) {
+    if (!config.token) {
+      throw new Error(
+        "Notion token is missing. Use --notion-token or set NOTION_TOKEN (or NOTION_API_KEY)."
+      );
+    }
+
+    const pageId = normalizeNotionPageId(options.pageId ?? config.parentPageId);
+
+    if (!pageId) {
+      throw new Error(
+        "Notion parent page id is missing. Use --notion-page-id or set NOTION_PARENT_PAGE_ID."
+      );
+    }
+
+    const pageSize = Math.max(1, Math.min(100, Number(options.pageSize ?? 100)));
+    const candidates = notionPageIdCandidates(pageId);
+    /** @type {unknown} */
+    let lastError = null;
+
+    for (const candidate of candidates) {
+      try {
+        /** @type {Array<Record<string, unknown>>} */
+        const all = [];
+        let cursor = "";
+        let hasMore = true;
+
+        while (hasMore) {
+          const query = new URLSearchParams({
+            page_size: String(pageSize)
+          });
+
+          if (cursor) {
+            query.set("start_cursor", cursor);
+          }
+
+          const payload = /** @type {Record<string, unknown>} */ (
+            await requestNotion(
+              config,
+              fetchImpl,
+              "GET",
+              `/blocks/${encodeURIComponent(candidate)}/children?${query.toString()}`,
+              null
+            )
+          );
+          const results = Array.isArray(payload.results) ? payload.results : [];
+
+          all.push(...results.filter((entry) => entry && typeof entry === "object"));
+          hasMore = payload.has_more === true;
+          cursor = typeof payload.next_cursor === "string" ? payload.next_cursor : "";
+        }
+
+        return {
+          pageId: candidate,
+          total: all.length,
+          blocks: all
+        };
+      } catch (error) {
+        lastError = error;
+
+        if (!isInvalidRequestUrlError(error)) {
+          throw error;
+        }
+      }
+    }
+
+    if (lastError) {
+      throw lastError;
+    }
+
+    return {
+      pageId,
+      total: 0,
+      blocks: []
+    };
+  }
+
+  /**
+   * @param {KnowledgeEntryInput} input
+   */
+  async function appendKnowledgeEntryDelta(input) {
+    const title = normalizeText(input.title);
+    const content = normalizeText(input.content);
+    const titleNeedle = title.toLowerCase();
+    const contentNeedle = content.slice(0, 120).toLowerCase();
+    const existing = await listChildren();
+    const existingTexts = existing.blocks.map((block) => blockToInlineText(block).toLowerCase());
+    const duplicate =
+      existingTexts.some((entry) => titleNeedle && entry.includes(titleNeedle)) &&
+      existingTexts.some((entry) => contentNeedle && entry.includes(contentNeedle));
+
+    if (duplicate) {
+      return {
+        action: "skip",
+        reason: "delta-sync-no-change",
+        title,
+        parentPageId: existing.pageId,
+        appendedBlocks: 0
+      };
+    }
+
+    return appendKnowledgeEntry(input);
+  }
+
   return {
     config,
-    appendKnowledgeEntry
+    appendKnowledgeEntry,
+    appendKnowledgeEntryDelta,
+    listChildren
   };
 }

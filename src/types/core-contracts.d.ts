@@ -10,6 +10,9 @@ export interface Chunk {
   teachingValue?: number;
   priority?: number;
   tokens?: string[];
+  retrievalScore?: number;
+  vectorScore?: number;
+  processing?: Record<string, unknown>;
 }
 
 export interface ChunkFile {
@@ -31,6 +34,8 @@ export interface ChunkDiagnostics {
   sourcePenalty: number;
   genericRunnerPenalty: number;
   implementationFit: number;
+  retrievalBoost: number;
+  customBoost: number;
   recallOriginBoost: number;
   narrativePenalty: number;
   redundancy: number;
@@ -71,6 +76,12 @@ export interface SelectionOptions {
   sentenceBudget?: number;
   changedFiles?: string[];
   recallReserveRatio?: number;
+  customScorers?: Array<(input: {
+    chunk: Chunk;
+    focus: string;
+    selectedChunks: Array<Chunk | SelectedChunk>;
+    options: SelectionOptions;
+  }) => number>;
   _cachedFocusTokens?: string[];
   _cachedChunkTokens?: string[];
 }

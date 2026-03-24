@@ -55,6 +55,17 @@ export interface ProjectSafetyConfig {
   blockDebugWithoutStrongFocus: boolean;
 }
 
+export interface ProjectLlmConfig {
+  provider: string;
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  tokenBudget: number;
+  maxContextChunks: number;
+  requireAuth: boolean;
+  apiKeys: string[];
+}
+
 export interface ProjectConfig {
   schemaVersion: string;
   project: string;
@@ -66,6 +77,7 @@ export interface ProjectConfig {
   security: ProjectSecurityConfig;
   scan: ProjectScanConfig;
   safety: ProjectSafetyConfig;
+  llm: ProjectLlmConfig;
 }
 
 function fail(message: string): never {
@@ -192,6 +204,16 @@ export function defaultProjectConfig(): ProjectConfig {
       requireExplicitFocusForWorkspaceScan: true,
       minWorkspaceFocusLength: 24,
       blockDebugWithoutStrongFocus: true
+    },
+    llm: {
+      provider: "claude",
+      model: "claude-3-5-sonnet-20241022",
+      temperature: 0.2,
+      maxTokens: 700,
+      tokenBudget: 520,
+      maxContextChunks: 8,
+      requireAuth: true,
+      apiKeys: []
     }
   };
 }
@@ -230,6 +252,10 @@ export function validateProjectConfig(value: unknown): ProjectConfig {
     assertObject(config.safety, "Project config.safety");
   }
 
+  if (config.llm !== undefined) {
+    assertObject(config.llm, "Project config.llm");
+  }
+
   const output = config.output;
   const selection = config.selection;
   const memory = config.memory;
@@ -237,6 +263,7 @@ export function validateProjectConfig(value: unknown): ProjectConfig {
   const security = config.security;
   const scan = config.scan;
   const safety = config.safety;
+  const llm = config.llm;
 
   const defaultFormat = optionalString(output?.defaultFormat, "Project config.output.defaultFormat");
 
@@ -371,6 +398,33 @@ export function validateProjectConfig(value: unknown): ProjectConfig {
           safety?.blockDebugWithoutStrongFocus,
           "Project config.safety.blockDebugWithoutStrongFocus"
         ) ?? defaults.safety.blockDebugWithoutStrongFocus
+    },
+    llm: {
+      provider: optionalString(llm?.provider, "Project config.llm.provider") ?? defaults.llm.provider,
+      model: optionalString(llm?.model, "Project config.llm.model") ?? defaults.llm.model,
+      temperature:
+        optionalNumber(llm?.temperature, "Project config.llm.temperature", {
+          min: 0,
+          max: 2
+        }) ?? defaults.llm.temperature,
+      maxTokens:
+        optionalNumber(llm?.maxTokens, "Project config.llm.maxTokens", {
+          min: 64,
+          integer: true
+        }) ?? defaults.llm.maxTokens,
+      tokenBudget:
+        optionalNumber(llm?.tokenBudget, "Project config.llm.tokenBudget", {
+          min: 80,
+          integer: true
+        }) ?? defaults.llm.tokenBudget,
+      maxContextChunks:
+        optionalNumber(llm?.maxContextChunks, "Project config.llm.maxContextChunks", {
+          min: 1,
+          integer: true
+        }) ?? defaults.llm.maxContextChunks,
+      requireAuth:
+        optionalBoolean(llm?.requireAuth, "Project config.llm.requireAuth") ?? defaults.llm.requireAuth,
+      apiKeys: optionalStringArray(llm?.apiKeys, "Project config.llm.apiKeys") ?? defaults.llm.apiKeys
     }
   };
 }

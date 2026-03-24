@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { execFile as execFileCallback } from "node:child_process";
@@ -12,10 +13,38 @@ import { parseChunkFile } from "../src/contracts/context-contracts.js";
 import { loadWorkspaceChunks } from "../src/io/workspace-chunks.js";
 import { buildLearningPacket } from "../src/learning/mentor-loop.js";
 import { initProjectConfig, runProjectDoctor } from "../src/system/project-ops.js";
+import { parseDocumentStructure } from "../src/processing/structure-parser.js";
+import { chunkDocument } from "../src/processing/chunker.js";
+import { tagChunkMetadata } from "../src/processing/metadata-tagger.js";
+import { extractEntities } from "../src/processing/entity-extractor.js";
+import { enforceOutputGuard } from "../src/guard/output-guard.js";
+import { createOutputAuditor } from "../src/guard/output-auditor.js";
+import { checkOutputCompliance } from "../src/guard/compliance-checker.js";
+import { createChunkRepository } from "../src/storage/chunk-repository.js";
+import { createBm25Index } from "../src/storage/bm25-index.js";
+import { createHybridRetriever } from "../src/storage/hybrid-retriever.js";
+import { createLlmProviderRegistry, normalizeGenerateResult } from "../src/llm/provider.js";
+import { buildLlmPrompt } from "../src/llm/prompt-builder.js";
+import { parseLlmResponse } from "../src/llm/response-parser.js";
+import {
+  buildDefaultNexusPipeline,
+  createPipelineBuilder
+} from "../src/orchestration/pipeline-builder.js";
+import { createDefaultExecutors } from "../src/orchestration/default-executors.js";
+import { createAuthMiddleware } from "../src/api/auth-middleware.js";
+import { createNexusApiServer } from "../src/api/server.js";
+import { createChangeDetector } from "../src/sync/change-detector.js";
+import { createVersionTracker } from "../src/sync/version-tracker.js";
+import { createSyncScheduler } from "../src/sync/sync-scheduler.js";
+import { scoreResponseConsistency } from "../src/eval/consistency-scorer.js";
+import { evaluateCiGate, formatCiGateReport } from "../src/eval/ci-gate.js";
 import {
   getObservabilityReport,
   recordCommandMetric
 } from "../src/observability/metrics-store.js";
+import { buildDashboardData } from "../src/observability/dashboard-data.js";
+import { createPromptVersionStore } from "../src/versioning/prompt-version-store.js";
+import { buildRollbackPlan } from "../src/versioning/rollback-engine.js";
 import {
   buildCloseSummaryContent,
   createEngramClient,
@@ -264,6 +293,33 @@ const JSON_CONTRACT_COMMANDS = [
 function createExecError(message, extra = {}) {
   const error = new Error(message);
   return Object.assign(error, extra);
+}
+
+/**
+ * @param {Record<string, unknown>} payload
+ * @param {string} secret
+ */
+function createHs256Jwt(payload, secret) {
+  const header = {
+    alg: "HS256",
+    typ: "JWT"
+  };
+  const encode = (value) =>
+    Buffer.from(JSON.stringify(value))
+      .toString("base64")
+      .replace(/\+/gu, "-")
+      .replace(/\//gu, "_")
+      .replace(/=+$/gu, "");
+  const encodedHeader = encode(header);
+  const encodedPayload = encode(payload);
+  const signature = createHmac("sha256", secret)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest("base64")
+    .replace(/\+/gu, "-")
+    .replace(/\//gu, "_")
+    .replace(/=+$/gu, "");
+
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
 }
 
 run("prioritizes relevant code and filters noisy logs", () => {
@@ -4298,6 +4354,662 @@ run("cli teach can disable automatic recall", async () => {
   assert.equal(called, false);
   assert.equal(parsed.memoryRecall.status, "disabled");
   assert.equal(parsed.memoryRecall.enabled, false);
+});
+
+run("NEXUS:1 structure parser extracts markdown sections", async () => {
+  const sections = parseDocumentStructure([
+    "# Intro",
+    "Context line",
+    "",
+    "## Details",
+    "Important details",
+    "",
+    "## Next",
+    "Action items"
+  ].join("\n"));
+
+  assert.equal(sections.length, 3);
+  assert.equal(sections[0].title, "Intro");
+  assert.equal(sections[1].level, 2);
+  assert.match(sections[2].id, /^section-/u);
+  assert.equal(sections[2].content.includes("Action items"), true);
+});
+
+run("NEXUS:1 chunker splits oversized sections", async () => {
+  const longParagraph = "A".repeat(900);
+  const chunks = chunkDocument(`# Summary\n\n${longParagraph}\n\n${longParagraph}`, {
+    source: "docs/nexus.md",
+    maxCharsPerChunk: 700
+  });
+
+  assert.equal(chunks.length >= 3, true);
+  assert.equal(chunks.every((entry) => entry.id.startsWith("docs/nexus.md#")), true);
+  assert.equal(chunks.every((entry) => entry.metadata.sectionTitle === "Summary"), true);
+});
+
+run("NEXUS:2 chunk repository upserts and filters persisted chunks", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "nexus-chunk-repo-"));
+  const repository = createChunkRepository({
+    filePath: path.join(tempRoot, "chunks.jsonl")
+  });
+
+  try {
+    await repository.upsertChunk({
+      id: "c1",
+      source: "docs/one.md",
+      kind: "doc",
+      content: "first chunk"
+    });
+    await repository.upsertChunk({
+      id: "c2",
+      source: "src/auth/middleware.ts",
+      kind: "code",
+      content: "second chunk"
+    });
+    await repository.upsertChunk({
+      id: "c1",
+      source: "docs/one.md",
+      kind: "doc",
+      content: "first chunk updated"
+    });
+
+    const one = await repository.getChunksById(["c1"]);
+    const code = await repository.listChunks({ kind: "code" });
+
+    assert.equal(one.length, 1);
+    assert.equal(one[0].content, "first chunk updated");
+    assert.equal(code.length, 1);
+    assert.equal(code[0].id, "c2");
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("NEXUS:4 output guard blocks secret-like output", async () => {
+  const result = enforceOutputGuard(
+    'authorization = "Bearer sk-live-0123456789ABCDEF0123456789"',
+    {
+      blockOnSecretSignal: true
+    }
+  );
+
+  assert.equal(result.allowed, false);
+  assert.equal(result.action, "block");
+  assert.equal(result.reasons.includes("secret-signal-detected"), true);
+  assert.equal(result.output, "");
+});
+
+run("NEXUS:1 metadata tagger infers domain and topic", async () => {
+  const tags = tagChunkMetadata({
+    source: "src/auth/middleware.ts",
+    kind: "code",
+    content: "validate session token and reject expired auth context"
+  });
+
+  assert.equal(tags.domain, "security");
+  assert.equal(tags.topic, "auth-validation");
+  assert.equal(tags.type, "code");
+  assert.equal(tags.confidence >= 0.75, true);
+});
+
+run("NEXUS:1 entity extractor finds dates urls organizations and references", async () => {
+  const entities = extractEntities(
+    "NEXUS sync review for GitHub happened on 2026-03-24. See https://example.com/docs and ask Ignacio Medina."
+  );
+
+  assert.equal(entities.some((entry) => entry.type === "date" && entry.value === "2026-03-24"), true);
+  assert.equal(entities.some((entry) => entry.type === "url"), true);
+  assert.equal(entities.some((entry) => entry.type === "organization" && entry.value === "GitHub"), true);
+  assert.equal(entities.some((entry) => entry.type === "reference" && entry.normalized === "NEXUS"), true);
+  assert.equal(entities.some((entry) => entry.type === "person" && entry.value === "Ignacio Medina"), true);
+});
+
+run("NEXUS:2 bm25 index ranks the most relevant document first", async () => {
+  const index = createBm25Index([
+    {
+      id: "auth",
+      content: "auth middleware validates expired session tokens before route handlers"
+    },
+    {
+      id: "docs",
+      content: "readme and docs about onboarding and release notes"
+    },
+    {
+      id: "metrics",
+      content: "observability metrics dashboard traces and counters"
+    }
+  ]);
+
+  const results = index.search("auth session validation", { limit: 2 });
+
+  assert.equal(results.length >= 1, true);
+  assert.equal(results[0].id, "auth");
+  assert.equal(results[0].score > 0, true);
+});
+
+run("NEXUS:4 output auditor records and lists guard events", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "nexus-output-audit-"));
+  const auditor = createOutputAuditor({
+    filePath: path.join(tempRoot, "audit.jsonl")
+  });
+
+  try {
+    await auditor.record({
+      action: "block",
+      reasons: ["secret-signal-detected"],
+      outputLength: 0,
+      source: "nexus:test"
+    });
+    await auditor.record({
+      action: "redact",
+      reasons: ["policy-term:password"],
+      outputLength: 24,
+      source: "nexus:test"
+    });
+
+    const blocked = await auditor.list({ action: "block", limit: 10 });
+    const recent = await auditor.list({ limit: 2 });
+
+    assert.equal(blocked.length, 1);
+    assert.equal(blocked[0].action, "block");
+    assert.equal(recent.length, 2);
+    assert.equal(recent[1].action, "redact");
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("NEXUS:2 hybrid retriever combines lexical and keyword signals", async () => {
+  const retriever = createHybridRetriever([
+    {
+      id: "nexus-storage",
+      content: "storage retrieval bm25 hybrid retriever for chunks"
+    },
+    {
+      id: "nexus-guard",
+      content: "guard output compliance redaction block unsafe responses"
+    },
+    {
+      id: "nexus-sync",
+      content: "sync notion change detector and version tracker"
+    }
+  ]);
+
+  const results = retriever.search("hybrid storage retrieval", { limit: 2 });
+
+  assert.equal(results.length >= 1, true);
+  assert.equal(results[0].id, "nexus-storage");
+  assert.equal(results[0].score >= results[0].lexicalScore * 0.75, true);
+});
+
+run("NEXUS:4 compliance checker detects email phone and blocked terms", async () => {
+  const result = checkOutputCompliance(
+    "Contact Ignacio at ignacio@example.com or +54 11 5555 1234. Internal secret scope.",
+    {
+      blockedTerms: ["internal secret"]
+    }
+  );
+
+  assert.equal(result.compliant, false);
+  assert.equal(result.violations.includes("email-detected"), true);
+  assert.equal(result.violations.includes("phone-detected"), true);
+  assert.equal(result.violations.includes("blocked-term:internal secret"), true);
+});
+
+run("NEXUS:4 output guard enforces domain-scope policy", async () => {
+  const result = enforceOutputGuard("Security token validation is required for API access.", {
+    domainScope: {
+      allowedDomains: ["observability"]
+    }
+  });
+
+  assert.equal(result.allowed, false);
+  assert.equal(result.reasons.some((reason) => reason.startsWith("domain-scope-outside:")), true);
+});
+
+run("NEXUS:0 change detector reports created changed and deleted files", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "nexus-change-detector-"));
+  const stateFilePath = path.join(tempRoot, ".lcs", "change-detector.json");
+  const detector = createChangeDetector({
+    stateFilePath
+  });
+
+  try {
+    await writeFile(path.join(tempRoot, "a.md"), "v1", "utf8");
+    await writeFile(path.join(tempRoot, "b.md"), "stable", "utf8");
+
+    const first = await detector.detectChanges(tempRoot);
+
+    assert.equal(first.summary.created >= 2, true);
+    assert.equal(first.summary.changed, 0);
+
+    await writeFile(path.join(tempRoot, "a.md"), "v2", "utf8");
+    await rm(path.join(tempRoot, "b.md"), { force: true });
+    await writeFile(path.join(tempRoot, "c.md"), "new", "utf8");
+
+    const second = await detector.detectChanges(tempRoot);
+
+    assert.equal(second.changed.includes("a.md"), true);
+    assert.equal(second.deleted.includes("b.md"), true);
+    assert.equal(second.created.includes("c.md"), true);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("NEXUS:0 version tracker increments document versions", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "nexus-version-tracker-"));
+  const tracker = createVersionTracker({
+    filePath: path.join(tempRoot, "versions.jsonl")
+  });
+
+  try {
+    const v1 = await tracker.recordVersion({
+      documentId: "doc-auth",
+      source: "docs/auth.md",
+      checksum: "hash-1"
+    });
+    const v2 = await tracker.recordVersion({
+      documentId: "doc-auth",
+      source: "docs/auth.md",
+      checksum: "hash-2"
+    });
+    const latest = await tracker.getLatest("doc-auth");
+
+    assert.equal(v1.version, 1);
+    assert.equal(v2.version, 2);
+    assert.equal(latest?.checksum, "hash-2");
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("NEXUS:0 sync scheduler tracks successful and failed runs", async () => {
+  let shouldFail = false;
+  const scheduler = createSyncScheduler({
+    autoStart: false,
+    intervalMs: 5_000,
+    async onTick() {
+      if (shouldFail) {
+        throw new Error("tick-failure");
+      }
+    }
+  });
+
+  try {
+    await scheduler.runNow();
+    shouldFail = true;
+    await scheduler.runNow();
+    const status = scheduler.getStatus();
+
+    assert.equal(status.runCount, 2);
+    assert.equal(status.successCount, 1);
+    assert.equal(status.failureCount, 1);
+    assert.match(status.lastError, /tick-failure/);
+  } finally {
+    scheduler.stop();
+  }
+});
+
+run("NEXUS:6 prompt builder injects context and parser extracts teaching sections", async () => {
+  const built = buildLlmPrompt({
+    question: "Explica por qué cambiamos el orden de validación",
+    task: "Harden auth middleware",
+    objective: "Teach request boundary validation",
+    chunks: [
+      {
+        id: "c1",
+        source: "src/auth/middleware.ts",
+        kind: "code",
+        content: "Validate JWT before calling route handlers."
+      }
+    ],
+    language: "es"
+  });
+  const parsed = parseLlmResponse([
+    "Change:",
+    "Se movió la validación de JWT al inicio.",
+    "Reason:",
+    "Para fallar rápido en el borde de request.",
+    "Concepts:",
+    "- Request boundary",
+    "- Fail fast",
+    "Practice:",
+    "Agrega un test de token expirado."
+  ].join("\n"));
+
+  assert.match(built.prompt, /Context chunks:/);
+  assert.equal(built.context.includedChunks.length, 1);
+  assert.match(parsed.change, /validación de JWT/i);
+  assert.equal(parsed.concepts.length >= 2, true);
+  assert.match(parsed.practice, /test de token expirado/i);
+});
+
+run("NEXUS:6 provider registry resolves registered provider", async () => {
+  const registry = createLlmProviderRegistry();
+  registry.register({
+    provider: "mock",
+    async generate() {
+      return normalizeGenerateResult({
+        content: "ok"
+      });
+    }
+  });
+
+  const provider = registry.get("mock");
+  const output = await provider.generate("hola");
+
+  assert.equal(registry.getDefault(), "mock");
+  assert.equal(output.content, "ok");
+});
+
+run("NEXUS:5 pipeline builder runs ingest-process-store-recall end-to-end", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "nexus-pipeline-"));
+  const executors = createDefaultExecutors({
+    repositoryFilePath: path.join(tempRoot, "chunks.jsonl")
+  });
+  const pipeline = buildDefaultNexusPipeline();
+  const builder = createPipelineBuilder({
+    executors: {
+      ingest: executors.ingest,
+      process: executors.process,
+      store: executors.store,
+      recall: executors.recall
+    }
+  });
+
+  try {
+    const result = await builder.runPipeline(pipeline, {
+      query: "auth token validation",
+      documents: [
+        {
+          source: "docs/auth.md",
+          kind: "doc",
+          content: "# Auth\nValidate token before route handlers."
+        }
+      ]
+    });
+
+    assert.equal(result.trace.every((entry) => entry.status === "ok"), true);
+    assert.equal(result.state.steps.store.storedCount >= 1, true);
+    assert.equal(result.state.steps.recall.results.length >= 1, true);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("NEXUS:7 consistency scorer and CI gate block low-quality outputs", async () => {
+  const consistency = scoreResponseConsistency([
+    { id: "a", content: "Validate JWT before route handlers and return 401 on failure." },
+    { id: "b", content: "Move auth validation to middleware boundary for fail-fast behavior." },
+    { id: "c", content: "Completely unrelated weather report and coffee notes." }
+  ]);
+
+  const gate = evaluateCiGate({
+    scores: {
+      consistency: consistency.score,
+      relevance: 0.81,
+      safety: 0.92,
+      cost: 120
+    },
+    thresholds: {
+      consistency: 0.6,
+      relevance: 0.7,
+      safety: 0.85,
+      cost: 100
+    }
+  });
+  const reportText = formatCiGateReport(gate);
+
+  assert.equal(consistency.score < 0.7, true);
+  assert.equal(gate.status, "blocked");
+  assert.match(reportText, /CI Gate: BLOCKED/);
+  assert.match(reportText, /cost/);
+});
+
+run("NEXUS:8 dashboard data aggregates observability metrics", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "nexus-observability-"));
+  const metricsFile = path.join(tempRoot, "observability.json");
+
+  try {
+    await recordCommandMetric(
+      {
+        command: "select",
+        durationMs: 130,
+        selection: {
+          selectedCount: 3,
+          suppressedCount: 2
+        }
+      },
+      {
+        filePath: metricsFile
+      }
+    );
+    await recordCommandMetric(
+      {
+        command: "teach",
+        durationMs: 260,
+        degraded: true,
+        recall: {
+          attempted: true,
+          status: "recalled",
+          recoveredChunks: 2,
+          selectedChunks: 1,
+          suppressedChunks: 1,
+          hit: true
+        }
+      },
+      {
+        filePath: metricsFile
+      }
+    );
+
+    const report = await getObservabilityReport({
+      filePath: metricsFile
+    });
+    const dashboard = await buildDashboardData({
+      metrics: report,
+      topCommands: 2
+    });
+
+    assert.equal(dashboard.commands.length, 2);
+    assert.equal(dashboard.health.recallHitRate >= 0.5, true);
+    assert.equal(dashboard.totals.runs, 2);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("NEXUS:9 prompt versioning persists versions and selects rollback candidate", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "nexus-versioning-"));
+  const store = createPromptVersionStore({
+    filePath: path.join(tempRoot, "prompt-versions.jsonl")
+  });
+
+  try {
+    const v1 = await store.saveVersion({
+      promptKey: "ask/auth",
+      content: "v1 prompt"
+    });
+    const v2 = await store.saveVersion({
+      promptKey: "ask/auth",
+      content: "v2 prompt stable"
+    });
+    const v3 = await store.saveVersion({
+      promptKey: "ask/auth",
+      content: "v3 prompt risky"
+    });
+
+    const rollback = await buildRollbackPlan(store, {
+      promptKey: "ask/auth",
+      evalScoresByVersion: {
+        [v1.id]: 0.62,
+        [v2.id]: 0.88,
+        [v3.id]: 0.4
+      },
+      minScore: 0.8
+    });
+
+    assert.equal(v3.version, 3);
+    assert.equal(rollback.status, "rollback-ready");
+    assert.equal(rollback.selected?.id, v2.id);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("NEXUS:10 auth middleware validates API key and JWT token", async () => {
+  const middleware = createAuthMiddleware({
+    apiKeys: ["my-key"],
+    jwtSecret: "super-secret"
+  });
+  const token = createHs256Jwt(
+    {
+      sub: "user-1",
+      exp: Math.floor(Date.now() / 1000) + 120
+    },
+    "super-secret"
+  );
+  const expiredToken = createHs256Jwt(
+    {
+      sub: "user-2",
+      exp: Math.floor(Date.now() / 1000) - 120
+    },
+    "super-secret"
+  );
+
+  const apiKeyAuth = middleware.authorize({
+    headers: {
+      "x-api-key": "my-key"
+    }
+  });
+  const jwtAuth = middleware.authorize({
+    headers: {
+      authorization: `Bearer ${token}`
+    }
+  });
+  const expired = middleware.authorize({
+    headers: {
+      authorization: `Bearer ${expiredToken}`
+    }
+  });
+
+  assert.equal(apiKeyAuth.authorized, true);
+  assert.equal(jwtAuth.authorized, true);
+  assert.equal(expired.authorized, false);
+  assert.match(expired.error ?? "", /expired/i);
+});
+
+run("NEXUS:10 API server exposes health sync pipeline and ask routes", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "nexus-api-server-"));
+  const apiKey = "nexus-test-key";
+  await writeFile(path.join(tempRoot, "seed.md"), "# Seed\ninitial", "utf8");
+
+  const server = createNexusApiServer({
+    host: "127.0.0.1",
+    port: 0,
+    auth: {
+      requireAuth: true,
+      apiKeys: [apiKey]
+    },
+    llm: {
+      defaultProvider: "mock",
+      providers: [
+        {
+          provider: "mock",
+          async generate() {
+            return {
+              content: [
+                "Change:",
+                "Updated auth flow.",
+                "Reason:",
+                "Fail fast before business logic.",
+                "Concepts:",
+                "- Middleware boundary",
+                "- Validation order",
+                "Practice:",
+                "Add a failing token test."
+              ].join("\n")
+            };
+          }
+        }
+      ]
+    },
+    sync: {
+      rootPath: tempRoot,
+      autoStart: false
+    },
+    repositoryFilePath: path.join(tempRoot, "pipeline-chunks.jsonl"),
+    outputAuditFilePath: path.join(tempRoot, "output-audit.jsonl")
+  });
+
+  let started = false;
+
+  try {
+    const start = await server.start();
+    started = true;
+    const baseUrl = `http://127.0.0.1:${start.port}`;
+    const health = await fetch(`${baseUrl}/api/health`);
+    const blockedStatus = await fetch(`${baseUrl}/api/sync/status`);
+    const sync = await fetch(`${baseUrl}/api/sync`, {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey
+      }
+    });
+    const pipeline = await fetch(`${baseUrl}/api/pipeline/run`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey
+      },
+      body: JSON.stringify({
+        input: {
+          query: "auth validation",
+          documents: [
+            {
+              source: "docs/auth.md",
+              kind: "doc",
+              content: "# Auth\nValidate tokens first."
+            }
+          ]
+        }
+      })
+    });
+    const ask = await fetch(`${baseUrl}/api/ask`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey
+      },
+      body: JSON.stringify({
+        question: "¿Qué cambió en auth?",
+        task: "Auth hardening",
+        objective: "Teach validation order",
+        provider: "mock"
+      })
+    });
+
+    const syncPayload = await sync.json();
+    const pipelinePayload = await pipeline.json();
+    const askPayload = await ask.json();
+
+    assert.equal(health.status, 200);
+    assert.equal(blockedStatus.status, 401);
+    assert.equal(sync.status, 200);
+    assert.equal(syncPayload.lastSync.status, "ok");
+    assert.equal(pipeline.status, 200);
+    assert.equal(pipelinePayload.pipeline.trace.length >= 4, true);
+    assert.equal(ask.status, 200);
+    assert.equal(askPayload.status, "ok");
+    assert.match(askPayload.parsed.change, /Updated auth flow/);
+  } finally {
+    if (started) {
+      await server.stop();
+    }
+
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });
 
 async function main() {

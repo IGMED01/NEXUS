@@ -24,6 +24,8 @@ const VALID_KINDS = new Set([
  * @property {number=} recency
  * @property {number=} teachingValue
  * @property {number=} priority
+ * @property {number=} retrievalScore
+ * @property {number=} vectorScore
  */
 
 /**
@@ -97,6 +99,8 @@ export function validateChunk(value, index) {
   assertNumberInRange(chunk.recency, `chunks[${index}].recency`);
   assertNumberInRange(chunk.teachingValue, `chunks[${index}].teachingValue`);
   assertNumberInRange(chunk.priority, `chunks[${index}].priority`);
+  assertNumberInRange(chunk.retrievalScore, `chunks[${index}].retrievalScore`);
+  assertNumberInRange(chunk.vectorScore, `chunks[${index}].vectorScore`);
 
   return /** @type {Chunk} */ ({
     id: chunk.id,
@@ -106,7 +110,9 @@ export function validateChunk(value, index) {
     certainty: chunk.certainty,
     recency: chunk.recency,
     teachingValue: chunk.teachingValue,
-    priority: chunk.priority
+    priority: chunk.priority,
+    retrievalScore: chunk.retrievalScore,
+    vectorScore: chunk.vectorScore
   });
 }
 

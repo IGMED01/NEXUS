@@ -51,24 +51,24 @@ Este repo combina cinco responsabilidades:
 
 | Area | Madurez |
 |---|---:|
-| Sync | 35% |
-| Processing | 30% |
-| Storage | 45% |
-| LCS Core | 90% |
-| Guard | 65% |
-| Orchestration | 80% |
-| LLM Layer | 10% |
-| Evals | 70% |
-| Observability | 85% |
-| Versioning | 85% |
-| Interface | 40% |
+| Sync | 60% |
+| Processing | 75% |
+| Storage | 75% |
+| LCS Core | 92% |
+| Guard | 88% |
+| Orchestration | 90% |
+| LLM Layer | 65% |
+| Evals | 85% |
+| Observability | 90% |
+| Versioning | 90% |
+| Interface | 75% |
 
 ## Interpretacion correcta
 
 - el **core** ya esta fuerte
 - la **capa operativa** ya esta fuerte
-- la parte de **LLM/interface/storage/sync** todavia esta en construccion
-- el ecosistema existe y tiene sentido real, pero sigue en **fase de consolidacion**
+- la base de **FASE 1, FASE 2 y buena parte de FASE 3** ya esta implementada
+- quedan pendientes de cierre de producto: **SDK, OpenAPI, dashboard UI y hard-gate final en CI**
 
 ## Que ya esta cerrado
 

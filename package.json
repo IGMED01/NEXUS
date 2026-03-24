@@ -22,6 +22,7 @@
     "benchmark:vertical": "node benchmark/run-vertical-benchmark.js",
     "doctor": "node src/cli.js doctor --format text",
     "doctor:json": "node src/cli.js doctor --format json",
+    "api:nexus": "node scripts/run-nexus-api.js",
     "init:config": "node src/cli.js init --format text",
     "select:example": "node src/cli.js select --input examples/auth-context.json --focus \"jwt middleware expired session validation\" --min-score 0.25 --format text",
     "teach:example": "node src/cli.js teach --input examples/auth-context.json --task \"Improve auth middleware\" --objective \"Teach why validation runs before route handlers\" --changed-files \"src/auth/middleware.ts,test/auth/middleware.test.ts\" --project learning-context-system --no-recall --min-score 0.25 --format text",

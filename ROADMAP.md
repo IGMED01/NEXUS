@@ -7,10 +7,15 @@ The repository already has:
 - context selection
 - teaching packets
 - Engram-backed memory recall and writes
+- NEXUS processing/storage/guard foundations implemented
+- NEXUS LLM layer + API/auth + orchestration pipeline base
+- NEXUS sync/eval/versioning/observability quality base
 - selector benchmark
 - recall benchmark
 - TypeScript backend vertical
 - `doctor`, `init`, stable JSON contracts, and incremental typecheck
+
+See `NEXUS-PLAN.md` for phase/capa checklist with dependencies and priorities.
 
 ## Roadmaps by section
 
@@ -24,9 +29,9 @@ The repository already has:
 ## Current next focus
 
 1. strengthen shared core typing inside the current one-repo ecosystem
-2. keep internal domain boundaries explicit before any future multi-repo extraction
-3. migrate more core logic under strict type checks
-4. keep operability and privacy visible in CI and docs
+2. close FASE 4 polish items (SDK, OpenAPI, dashboard UI, full demo)
+3. keep internal domain boundaries explicit before any future multi-repo extraction
+4. migrate more core logic under strict type checks
 
 ## Non-goals for now
 

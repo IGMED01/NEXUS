@@ -66,6 +66,29 @@ Recommended scripts:
 
 If PowerShell blocks `npm.ps1`, use `cmd /c npm.cmd run ...` or call the raw `node src/cli.js ...` commands shown below.
 
+## NEXUS API surface (Phase 2 / Interface)
+
+You can run the HTTP API with:
+
+```bash
+npm run api:nexus
+```
+
+Current endpoints:
+
+- `GET /api/health` (no auth)
+- `GET /api/sync/status`
+- `POST /api/sync`
+- `POST /api/guard/output`
+- `POST /api/pipeline/run`
+- `POST /api/ask`
+
+Auth model:
+
+- API key: `x-api-key`
+- JWT bearer: `Authorization: Bearer <token>`
+- controlled by `learning-context.config.json` under `llm.requireAuth` and `llm.apiKeys`
+
 ## Debug mode
 
 Use `--debug` when you want the playground to explain its decisions instead of only showing the final result.

@@ -10,6 +10,14 @@ It does three things together:
 2. teaches from that context
 3. remembers durable decisions through Engram
 
+## Naming convention (NEXUS)
+
+- **NEXUS** = full platform (11 layers)
+- **LCS** = context engine layer (`NEXUS:3`)
+- **NEXUS:N** = direct layer reference (for example `NEXUS:6` = LLM Layer)
+
+Operational checklists, dependencies, and per-layer priorities are tracked in **`NEXUS-PLAN.md`**.
+
 ## What this ecosystem actually is
 
 This ecosystem is **not** a generic AI platform and **not** a multi-repo product suite yet.
@@ -88,17 +96,17 @@ This is the current architectural picture of the ecosystem:
 
 | Area | Maturity |
 |---|---:|
-| Sync | 35% |
-| Processing | 30% |
-| Storage | 45% |
-| LCS Core | 90% |
-| Guard | 65% |
-| Orchestration | 80% |
-| LLM Layer | 10% |
-| Evals | 70% |
-| Observability | 85% |
-| Versioning | 85% |
-| Interface | 40% |
+| Sync | 60% |
+| Processing | 75% |
+| Storage | 75% |
+| LCS Core | 92% |
+| Guard | 88% |
+| Orchestration | 90% |
+| LLM Layer | 65% |
+| Evals | 85% |
+| Observability | 90% |
+| Versioning | 90% |
+| Interface | 75% |
 
 Interpretation:
 
@@ -263,11 +271,22 @@ These projects are credited as architectural inspiration. They are not listed as
 - `src/analysis/readme-generator.js`: generated learning README builder
 - `src/ci/pr-learnings.js`: merged-PR metadata to durable learning-note payload mapper
 - `src/context/noise-canceler.js`: signal-over-noise selector
+- `src/processing/`: NEXUS processing layer (structure parser, chunker, metadata, entities)
+- `src/storage/`: NEXUS storage layer (chunk repository, BM25 index, hybrid retriever)
+- `src/guard/`: NEXUS output guard, compliance checks, and audit trail
 - `src/learning/mentor-loop.js`: learning packet builder
 - `src/memory/engram-client.js` / `src/memory/engram-client.ts`: local Engram adapter for recall and durable memory writes (JS runtime + TS build track)
+- `src/llm/`: provider registry, Claude adapter, prompt builder, response parser
+- `src/orchestration/`: dynamic pipeline builder and default step executors
+- `src/sync/`: change detector, version tracker, and periodic sync scheduler
+- `src/eval/`: consistency scorer and CI gate for release blocking
 - `src/observability/metrics-store.js`: local command metrics store and aggregated observability report
+- `src/observability/dashboard-data.js`: dashboard-ready observability payload
+- `src/versioning/`: prompt version store + rollback planner
+- `src/api/`: auth middleware and HTTP server (`/api/ask`, `/api/guard/output`, `/api/sync`)
 - `src/security/prowler-ingest.js`: converter from Prowler findings JSON to LCS-compatible chunk JSON
 - `scripts/sync-pr-learnings.js`: CI helper that syncs merged PR learnings to Notion through `sync-knowledge`
+- `scripts/run-nexus-api.js`: local NEXUS API launcher
 - `src/cli.js`: local CLI entrypoint
 - `skills/`: language-specific and workflow-specific teaching skills
 
@@ -336,6 +355,7 @@ npm run benchmark
 npm run benchmark:recall
 npm run benchmark:vertical
 npm run security:pipeline:example
+npm run api:nexus
 ```
 
 `security:pipeline:example` includes a default quality gate (`min-included-findings=1`, `min-selected-teach-chunks=1`, `min-priority=0.84`).
@@ -407,6 +427,8 @@ That file is the official place for:
 - memory automation defaults (`memory.autoRecall`, `memory.autoRemember`)
 - memory backend defaults (`memory.backend`: `resilient`, `engram-only`, `local-only`)
 - Engram binary and data directory paths
+- LLM runtime defaults (`llm.provider`, `llm.model`, `llm.temperature`, `llm.maxTokens`)
+- API auth defaults (`llm.requireAuth`, `llm.apiKeys`)
 - scan safety defaults and per-project overrides
 - execution safety for low-signal workspace scans (`safety.requireExplicitFocusForWorkspaceScan`, `safety.minWorkspaceFocusLength`, `safety.blockDebugWithoutStrongFocus`)
 
