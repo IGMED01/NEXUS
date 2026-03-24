@@ -808,7 +808,7 @@ export function selectContextWindow(chunks, options = {}) {
 
     const recallEntry = selectedRecall[0];
 
-    if (!recallEntry || !workspaceCandidates.length || selectedRecall.length <= 1) {
+    if (!recallEntry || !workspaceCandidates.length) {
       break;
     }
 
@@ -841,7 +841,10 @@ export function selectContextWindow(chunks, options = {}) {
         continue;
       }
 
-      if (!tightImplementationWindow && candidate.score <= recallEntry.chunk.score) {
+      if (
+        !tightImplementationWindow &&
+        candidate.score <= recallEntry.chunk.score + 0.12
+      ) {
         continue;
       }
 

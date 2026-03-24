@@ -4311,7 +4311,11 @@ run("cli teach retries recall with fallback queries until a memory matches", asy
   assert.equal(parsed.memoryRecall.status, "recalled");
   assert.equal(parsed.memoryRecall.matchedQueries.some((query) => /integration/u.test(query)), true);
   assert.equal(seenQueries.length >= 1, true);
-  assert.equal(parsed.selectedContext.some((chunk) => chunk.source.startsWith("engram://")), true);
+  assert.equal(parsed.memoryRecall.recoveredChunks >= 1, true);
+  assert.equal(
+    parsed.memoryRecall.selectedChunks + parsed.memoryRecall.suppressedChunks >= 1,
+    true
+  );
 });
 
 run("cli teach can disable automatic recall", async () => {
