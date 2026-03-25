@@ -22,6 +22,75 @@ import "./handlers.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const DEMO_HTML = resolve(__dirname, "../../demo/index.html");
+const UI_DIST = resolve(__dirname, "../../ui/dist");
+
+// ── MIME type helper ─────────────────────────────────────────────────
+
+/** @type {Record<string, string>} */
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".js":   "application/javascript; charset=utf-8",
+  ".css":  "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg":  "image/svg+xml",
+  ".png":  "image/png",
+  ".jpg":  "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".ico":  "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2":"font/woff2",
+  ".ttf":  "font/ttf"
+};
+
+/**
+ * @param {string} filePath
+ * @returns {string}
+ */
+function getMimeType(filePath) {
+  const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
+  return MIME_TYPES[ext] ?? "application/octet-stream";
+}
+
+/**
+ * Try to serve a static file from ui/dist. Returns true if served, false otherwise.
+ * @param {string} urlPath
+ * @param {import("node:http").ServerResponse} res
+ * @returns {Promise<boolean>}
+ */
+async function tryServeStatic(urlPath, res) {
+  // Prevent directory traversal
+  const safePath = urlPath.split("?")[0].split("#")[0];
+  const filePath = join(UI_DIST, safePath);
+
+  // Ensure we stay within UI_DIST
+  if (!filePath.startsWith(UI_DIST)) return false;
+
+  try {
+    const content = await readFile(filePath);
+    res.writeHead(200, { "Content-Type": getMimeType(filePath) });
+    res.end(content);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Serve ui/dist/index.html as SPA fallback.
+ * @param {import("node:http").ServerResponse} res
+ * @returns {Promise<boolean>}
+ */
+async function serveSpaFallback(res) {
+  try {
+    const indexPath = join(UI_DIST, "index.html");
+    const content = await readFile(indexPath, "utf8");
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(content);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ── Config from environment ──────────────────────────────────────────
 
@@ -46,8 +115,8 @@ function boot() {
   const server = createServer(async (req, res) => {
     const url = req.url ?? "/";
 
-    // Serve demo UI at root
-    if (req.method === "GET" && (url === "/" || url === "/demo")) {
+    // Serve demo UI
+    if (req.method === "GET" && url === "/demo") {
       try {
         const html = await readFile(DEMO_HTML, "utf8");
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -55,6 +124,41 @@ function boot() {
       } catch {
         res.writeHead(404, { "Content-Type": "text/plain" });
         res.end("Demo not found");
+      }
+      return;
+    }
+
+    // API routes
+    if (url.startsWith("/api/") || url === "/api") {
+      handleRequest(req, res, { corsOrigin: config.corsOrigin }).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: true, message }));
+      });
+      return;
+    }
+
+    // Static file serving from ui/dist for GET requests
+    if (req.method === "GET") {
+      const urlPath = url.split("?")[0].split("#")[0];
+
+      // Try exact file first
+      if (await tryServeStatic(urlPath, res)) return;
+
+      // Try index.html for root
+      if (urlPath === "/" && await tryServeStatic("/index.html", res)) return;
+
+      // SPA fallback: serve index.html for any unmatched route
+      if (await serveSpaFallback(res)) return;
+
+      // If ui/dist doesn't exist, fall back to demo
+      try {
+        const html = await readFile(DEMO_HTML, "utf8");
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(html);
+      } catch {
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("Not found");
       }
       return;
     }
@@ -102,6 +206,7 @@ function boot() {
     console.log("  │    POST /api/model-config               │");
     console.log("  │    POST /api/rollback-check             │");
     console.log("  │    GET  /api/score-trend                │");
+    console.log("  │    POST /api/chat                       │");
     console.log("  └─────────────────────────────────────────┘");
     console.log("");
   });

@@ -141,17 +141,30 @@ function EmptyState({ icon, text }) {
   )
 }
 
+const EXAMPLE_PROMPTS = [
+  { icon:'🔐', label:'Auth & rate limits', q:'How does the JWT auth middleware work and what are the rate limits?' },
+  { icon:'🗄️', label:'DB semantic search', q:'How does the semantic search query work in the chunks table?' },
+  { icon:'🐳', label:'Deploy pipeline', q:'What are the required CI checks before deploying to production?' },
+  { icon:'⚛️', label:'React patterns', q:'What are the rules for state management and when should I use Context vs Zustand?' },
+  { icon:'📊', label:'DB indexes', q:'What indexes exist on the documents and chunks tables and why?' },
+  { icon:'🧪', label:'Testing standards', q:'What testing tools and coverage targets does the project use?' },
+]
+
 function QueryBlock({ onChunks }) {
   const [messages, setMessages] = useState([{ role:'nexus', text:'Preguntame sobre tu base de conocimiento. Selecciono el contexto relevante y elimino el ruido.', meta:null, query:null }])
   const [input, setInput]       = useState('')
   const [loading, setLoading]   = useState(false)
   const [tabs, setTabs]         = useState({})   // msgIndex -> 'nexus' | 'raw'
+  const [showPrompts, setShowPrompts] = useState(true) // show example prompts initially
   const bottomRef               = useRef(null)
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:'smooth' }) }, [messages, loading])
 
   function setTab(i, t) { setTabs(p => ({ ...p, [i]: t })) }
 
-  function rawReply(query, meta) {
+  function rawReply(msg) {
+    if (msg.rawText) return msg.rawText
+    const meta = msg.meta
+    const query = msg.query
     const scoreStr = meta ? `${(meta.score * 100).toFixed(0)}%` : '—'
     const chunkStr = meta ? meta.chunks : 0
     return [
@@ -169,14 +182,35 @@ function QueryBlock({ onChunks }) {
     setInput('')
     setMessages(m => [...m, { role:'user', text:q, meta:null, query:q }])
     setLoading(true); onChunks([])
-    const { ok, data } = await apiFetch('POST', '/api/recall', { query:q })
-    setLoading(false)
-    const chunks   = data.chunks ?? []
+    setShowPrompts(false)
+
+    // Step 1: Recall chunks
+    const { ok: recallOk, data: recallData } = await apiFetch('POST', '/api/recall', { query:q })
+    const chunks = recallData.chunks ?? []
     const avgScore = chunks.length ? chunks.reduce((a,c) => a+(c.priority??c.score??0),0)/chunks.length : 0
-    const tokens   = chunks.reduce((a,c) => a+(c.tokens??Math.ceil((c.content??'').length/4)),0)
-    const reply    = ok ? (data.result??data.stdout??data.context??JSON.stringify(data,null,2)) : '⚠ '+(data.message??'Error')
-    setMessages(m => [...m, { role:'nexus', text:reply, meta: chunks.length ? { chunks:chunks.length, tokens, score:avgScore } : null, query:q }])
+    const tokens = chunks.reduce((a,c) => a+(c.tokens??Math.ceil((c.content??'').length/4)),0)
     onChunks(chunks)
+
+    // Step 2: Get LLM responses (with and without context) in parallel
+    const [nexusRes, rawRes] = await Promise.all([
+      apiFetch('POST', '/api/chat', { query:q, chunks, withContext:true }),
+      apiFetch('POST', '/api/chat', { query:q, chunks:[], withContext:false })
+    ])
+
+    setLoading(false)
+
+    const nexusReply = nexusRes.ok ? (nexusRes.data.response ?? 'Sin respuesta') : (recallOk ? (recallData.result??recallData.stdout??recallData.context??JSON.stringify(recallData,null,2)) : '⚠ Error de conexión')
+    const rawReplyText = rawRes.ok ? (rawRes.data.response ?? '') : ''
+    const provider = nexusRes.ok ? nexusRes.data.provider : null
+    const llmModel = nexusRes.ok ? nexusRes.data.model : null
+
+    setMessages(m => [...m, {
+      role:'nexus',
+      text:nexusReply,
+      rawText: rawReplyText || null,
+      meta: chunks.length ? { chunks:chunks.length, tokens, score:avgScore, provider, model:llmModel } : null,
+      query:q
+    }])
   }
 
   return (
@@ -240,7 +274,7 @@ function QueryBlock({ onChunks }) {
                       borderLeft:'2px solid rgba(239,68,68,0.35)' }}>
                       <span style={{ fontSize:'9px', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.8px', color:'rgba(239,68,68,0.6)' }}>⚠ Sin NEXUS</span>
                     </div>
-                    <span style={{ color:'var(--text-3)', fontSize:'12px' }}>{rawReply(m.query, m.meta)}</span>
+                    <span style={{ color:'var(--text-3)', fontSize:'12px' }}>{rawReply(m)}</span>
                     {m.meta && (
                       <div style={{ marginTop:'10px', padding:'6px 10px', background:'rgba(124,58,237,0.05)',
                         border:'1px solid rgba(124,58,237,0.12)', borderLeft:'2px solid var(--accent)', display:'flex', gap:'8px', alignItems:'center', flexWrap:'wrap' }}>
@@ -248,6 +282,9 @@ function QueryBlock({ onChunks }) {
                         <span style={{ fontSize:'9px', fontFamily:'JetBrains Mono,monospace', color:'var(--text-3)', background:'var(--surface-3)', border:'1px solid var(--border)', padding:'1px 6px' }}>{m.meta.chunks} chunks</span>
                         <span style={{ fontSize:'9px', fontFamily:'JetBrains Mono,monospace', color:'var(--text-3)', background:'var(--surface-3)', border:'1px solid var(--border)', padding:'1px 6px' }}>{m.meta.tokens.toLocaleString()} tokens de contexto</span>
                         <span style={{ fontSize:'9px', fontFamily:'JetBrains Mono,monospace', color:'var(--accent-2)', background:'rgba(168,85,247,0.08)', border:'1px solid rgba(168,85,247,0.2)', padding:'1px 6px' }}>score avg {(m.meta.score*100).toFixed(0)}%</span>
+                        {m.meta.provider && (
+                          <span style={{ fontSize:'9px', fontFamily:'JetBrains Mono,monospace', color:'var(--green)', background:'rgba(16,185,129,0.08)', border:'1px solid rgba(16,185,129,0.2)', padding:'1px 7px' }}>{m.meta.provider}</span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -262,12 +299,35 @@ function QueryBlock({ onChunks }) {
                     </span>
                     <span style={{ fontSize:'9px', fontFamily:'JetBrains Mono,monospace', color:'var(--text-3)', background:'var(--surface-3)', border:'1px solid var(--border)', padding:'1px 7px' }}>{m.meta.chunks} chunks</span>
                     <span style={{ fontSize:'9px', fontFamily:'JetBrains Mono,monospace', color:'var(--text-3)', background:'var(--surface-3)', border:'1px solid var(--border)', padding:'1px 7px' }}>{m.meta.tokens.toLocaleString()} tk</span>
+                    {m.meta.provider && (
+                      <span style={{ fontSize:'9px', fontFamily:'JetBrains Mono,monospace', color:'var(--green)', background:'rgba(16,185,129,0.08)', border:'1px solid rgba(16,185,129,0.2)', padding:'1px 7px' }}>{m.meta.provider}</span>
+                    )}
                   </div>
                 )}
               </div>
             </div>
           )
         })}
+        {/* ── Example prompts grid ── */}
+        {showPrompts && messages.length <= 1 && !loading && (
+          <div className="reveal" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px', padding:'4px 0 8px' }}>
+            {EXAMPLE_PROMPTS.map(ep => (
+              <button key={ep.label} onClick={() => { setInput(ep.q); setShowPrompts(false) }}
+                style={{ display:'flex', alignItems:'center', gap:'8px', padding:'10px 12px',
+                  background:'var(--surface-2)', border:'1px solid var(--border)',
+                  cursor:'pointer', textAlign:'left', fontFamily:'inherit', transition:'all 0.15s',
+                  color:'var(--text-2)', fontSize:'11px', lineHeight:1.4 }}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor='rgba(124,58,237,0.4)';e.currentTarget.style.background='var(--surface-3)'}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.background='var(--surface-2)'}}>
+                <span style={{ fontSize:'16px', flexShrink:0 }}>{ep.icon}</span>
+                <div>
+                  <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-1)', marginBottom:'2px' }}>{ep.label}</div>
+                  <div style={{ fontSize:'10px', color:'var(--text-3)', overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>{ep.q}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
         {loading && (
           <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
             <div style={{ width:'2px', alignSelf:'stretch', background:'var(--accent)', opacity:0.4 }} />

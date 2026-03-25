@@ -18,6 +18,7 @@ import { loadSnapshots, getScoreTrend } from "../versioning/context-snapshot.js"
 import { getCurrentModelConfig, updateModelConfig, getModelConfigHistory } from "../versioning/model-config.js";
 import { checkAndRollback } from "../versioning/rollback-engine.js";
 import { createSession, getSession, addTurn, buildConversationContext, listSessions, deleteSession } from "../orchestration/conversation-manager.js";
+import { chatCompletion } from "../llm/openrouter-provider.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -578,4 +579,35 @@ registerRoute("GET", "/api/score-trend", async (/** @type {ApiRequest} */ req) =
   const trend = await getScoreTrend(project);
 
   return jsonResponse(200, { project, trend });
+});
+
+// ── POST /api/chat (LLM completion with optional context) ────────────
+
+registerRoute("POST", "/api/chat", async (/** @type {ApiRequest} */ req) => {
+  const query = requireField(req.body, "query");
+  const chunks = Array.isArray(req.body.chunks) ? req.body.chunks : [];
+  const withContext = req.body.withContext !== false;
+  const model = optionalField(req.body, "model");
+
+  // Build context from chunks
+  let context = undefined;
+  if (withContext && chunks.length > 0) {
+    context = chunks.map((c, i) => {
+      const source = typeof c === "string" ? `chunk-${i}` : (c.source ?? c.id ?? `chunk-${i}`);
+      const content = typeof c === "string" ? c : (c.content ?? "");
+      const score = typeof c === "object" ? (c.priority ?? c.score ?? 0) : 0;
+      return `[${source} | score:${(score * 100).toFixed(0)}%]\n${content}`;
+    }).join("\n\n");
+  }
+
+  const result = await chatCompletion({ query, context, model });
+
+  return jsonResponse(result.ok ? 200 : 503, {
+    response: result.response,
+    model: result.model,
+    tokens: result.tokens,
+    provider: result.provider,
+    withContext,
+    chunksUsed: chunks.length
+  });
 });

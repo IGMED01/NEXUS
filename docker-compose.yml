@@ -1,0 +1,13 @@
+version: "3.8"
+services:
+  nexus:
+    build: .
+    ports:
+      - "80:3100"
+    environment:
+      - LCS_API_HOST=0.0.0.0
+      - LCS_API_PORT=3100
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - CEREBRAS_API_KEY=${CEREBRAS_API_KEY:-}
+    restart: unless-stopped
