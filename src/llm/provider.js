@@ -5,7 +5,8 @@
  *   model?: string,
  *   temperature?: number,
  *   maxTokens?: number,
- *   systemPrompt?: string
+ *   systemPrompt?: string,
+ *   timeoutMs?: number
  * }} LlmGenerateOptions
  */
 
@@ -45,6 +46,7 @@
  * @typedef {{
  *   provider?: string,
  *   fallbackProviders?: string[],
+ *   attemptTimeoutMs?: number,
  *   options?: LlmGenerateOptions
  * }} LlmFallbackInput
  */
@@ -54,6 +56,103 @@
  */
 function asFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * @param {unknown} value
+ */
+function asPositiveInteger(value) {
+  return Math.max(0, Math.trunc(asFiniteNumber(value)));
+}
+
+/**
+ * @param {import("./provider.js").LlmGenerateResult["usage"] | undefined} usage
+ */
+function normalizeUsage(usage) {
+  if (!usage) {
+    return {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0
+    };
+  }
+
+  return {
+    inputTokens: asPositiveInteger(usage.inputTokens),
+    outputTokens: asPositiveInteger(usage.outputTokens),
+    totalTokens: asPositiveInteger(usage.totalTokens)
+  };
+}
+
+/**
+ * @param {Array<{ provider: string, ok: boolean, durationMs: number, usage?: { inputTokens: number, outputTokens: number, totalTokens: number }, error?: string }>} attempts
+ */
+function summarizeAttempts(attempts) {
+  let totalDurationMs = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalTokens = 0;
+  let successfulProvider = "";
+  let successfulAttempt = 0;
+
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index];
+    const usage = normalizeUsage(attempt.usage);
+
+    totalDurationMs += asPositiveInteger(attempt.durationMs);
+    totalInputTokens += usage.inputTokens;
+    totalOutputTokens += usage.outputTokens;
+    totalTokens += usage.totalTokens;
+
+    if (attempt.ok && !successfulProvider) {
+      successfulProvider = attempt.provider;
+      successfulAttempt = index + 1;
+    }
+  }
+
+  const attemptsCount = attempts.length;
+
+  return {
+    attemptsCount,
+    failedAttempts: attempts.filter((entry) => !entry.ok).length,
+    totalDurationMs,
+    averageAttemptDurationMs: attemptsCount ? Math.round(totalDurationMs / attemptsCount) : 0,
+    totalInputTokens,
+    totalOutputTokens,
+    totalTokens,
+    successfulProvider,
+    successfulAttempt
+  };
+}
+
+/**
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {number} timeoutMs
+ * @param {string} timeoutMessage
+ */
+async function awaitWithTimeout(promise, timeoutMs, timeoutMessage) {
+  if (timeoutMs <= 0) {
+    return promise;
+  }
+
+  /** @type {NodeJS.Timeout | null} */
+  let timeout = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(timeoutMessage));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 /**
@@ -92,31 +191,44 @@ export async function generateWithProviderFallback(registry, prompt, input = {})
         .filter(Boolean)
     : [];
   const options = input.options ?? {};
+  const attemptTimeoutMs = asPositiveInteger(input.attemptTimeoutMs ?? options.timeoutMs);
   const queue = [...new Set([primaryName, ...fallbackProviders].filter(Boolean))];
 
   if (!queue.length) {
     queue.push("");
   }
 
-  /** @type {Array<{ provider: string, ok: boolean, error?: string }>} */
+  /** @type {Array<{ provider: string, ok: boolean, durationMs: number, usage?: { inputTokens: number, outputTokens: number, totalTokens: number }, error?: string }>} */
   const attempts = [];
   /** @type {Error | null} */
   let lastError = null;
 
   for (const providerName of queue) {
+    const startedAt = Date.now();
     try {
       const provider = registry.get(providerName);
-      const generated = await provider.generate(prompt, options);
+      const generatePromise = provider.generate(prompt, options);
+      const generated = await awaitWithTimeout(
+        generatePromise,
+        attemptTimeoutMs,
+        `Provider '${provider.provider}' timed out after ${attemptTimeoutMs}ms.`
+      );
+
+      const normalized = normalizeGenerateResult(generated);
+      const usage = normalizeUsage(normalized.usage);
 
       attempts.push({
         provider: provider.provider,
-        ok: true
+        ok: true,
+        durationMs: Date.now() - startedAt,
+        usage
       });
 
       return {
         provider: provider.provider,
-        generated,
-        attempts
+        generated: normalized,
+        attempts,
+        summary: summarizeAttempts(attempts)
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -124,6 +236,7 @@ export async function generateWithProviderFallback(registry, prompt, input = {})
       attempts.push({
         provider: providerName || "default",
         ok: false,
+        durationMs: Date.now() - startedAt,
         error: message
       });
     }
@@ -135,6 +248,7 @@ export async function generateWithProviderFallback(registry, prompt, input = {})
 
   throw Object.assign(error, {
     attempts,
+    summary: summarizeAttempts(attempts),
     cause: lastError
   });
 }

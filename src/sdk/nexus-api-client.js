@@ -133,8 +133,18 @@ export class NexusApiClient {
     return this.request("/api/sync/status");
   }
 
-  async syncDrift() {
-    return this.request("/api/sync/drift");
+  /**
+   * @param {{
+   *   warningRatio?: number,
+   *   criticalRatio?: number,
+   *   spikeMultiplier?: number,
+   *   baselineWindow?: number
+   * }} [query]
+   */
+  async syncDrift(query = {}) {
+    return this.request("/api/sync/drift", {
+      query
+    });
   }
 
   async syncNow() {

@@ -29,6 +29,7 @@
 - [x] API: `POST /api/sync`
 - [x] API: `GET /api/sync/status`
 - [x] monitor de drift entre corridas (`src/sync/drift-monitor.js`, `GET /api/sync/drift`)
+- [x] clasificacion operativa de drift por niveles (`stable|warning|critical`) con deteccion de spike y umbrales configurables por query
 
 ### NEXUS:1 — PROCESSING
 **Prioridad:** Alta
@@ -86,6 +87,7 @@
 - [x] API: `POST /api/ask`
 - [x] config LLM en `learning-context.config.json` + contratos
 - [x] fallback multi-provider (`generateWithProviderFallback`, `fallbackProviders` en `/api/ask`)
+- [x] hardening de fallback con timeout por intento (`attemptTimeoutMs`) y telemetria de latencia/tokens por intento (`fallback.summary`)
 
 ### NEXUS:7 — EVALS
 **Prioridad:** Media

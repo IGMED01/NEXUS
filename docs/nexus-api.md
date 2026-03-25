@@ -101,3 +101,21 @@ List them with:
 ```bash
 curl http://127.0.0.1:8787/api/guard/policies
 ```
+
+## Fallback and drift hardening (operational)
+
+- `POST /api/ask` now accepts optional `attemptTimeoutMs` to cap each provider attempt before moving to fallback providers.
+- `POST /api/ask` response now includes `fallback.summary` with:
+  - `attemptsCount`
+  - `failedAttempts`
+  - `totalDurationMs`
+  - token totals (`totalInputTokens`, `totalOutputTokens`, `totalTokens`)
+  - `successfulProvider`
+
+- `GET /api/sync/drift` now accepts optional query parameters:
+  - `warningRatio`
+  - `criticalRatio`
+  - `spikeMultiplier`
+  - `baselineWindow`
+
+The drift report includes `thresholds`, per-run drift level (`stable|warning|critical`), and spike detection metadata.

@@ -203,7 +203,8 @@ Incluye:
 - contratos JSON estables para automatizacion
 - gates de calidad en CI (tests, typecheck, build y benchmarks)
 - NEXUS API con SDK, OpenAPI y demo visual (`/api/demo`)
-- perfiles de guard, drift de sync, alertas de observabilidad y plan de rollback por API
+- perfiles de guard, drift de sync (niveles + umbrales configurables), alertas de observabilidad y plan de rollback por API
+- telemetria de fallback en `ask` (latencia por intento + resumen de tokens) para analizar failover de providers
 
 ## Snapshot actual de madurez
 

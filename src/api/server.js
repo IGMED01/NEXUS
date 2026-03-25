@@ -94,6 +94,7 @@ function getRequestUrl(request) {
  *     defaultProvider?: string,
  *     providers?: Array<import("../llm/provider.js").LlmProvider>,
  *     claude?: Parameters<typeof createClaudeProvider>[0],
+ *     attemptTimeoutMs?: number,
  *     tokenBudget?: number,
  *     maxChunks?: number
  *   },
@@ -308,7 +309,12 @@ export function createNexusApiServer(options = {}) {
       }
 
       if (method === "GET" && pathname === "/api/sync/drift") {
-        const report = await driftMonitor.getReport();
+        const report = await driftMonitor.getReport({
+          warningRatio: Number(requestUrl.searchParams.get("warningRatio") ?? 0),
+          criticalRatio: Number(requestUrl.searchParams.get("criticalRatio") ?? 0),
+          spikeMultiplier: Number(requestUrl.searchParams.get("spikeMultiplier") ?? 0),
+          baselineWindow: Number(requestUrl.searchParams.get("baselineWindow") ?? 0)
+        });
         sendJson(response, 200, {
           status: "ok",
           drift: report
@@ -569,6 +575,7 @@ export function createNexusApiServer(options = {}) {
          *   language?: "es" | "en",
          *   provider?: string,
          *   fallbackProviders?: string[],
+         *   attemptTimeoutMs?: number,
          *   model?: string,
          *   chunks?: import("../types/core-contracts.d.ts").Chunk[],
          *   tokenBudget?: number,
@@ -603,6 +610,9 @@ export function createNexusApiServer(options = {}) {
           fallbackProviders: Array.isArray(body.fallbackProviders)
             ? body.fallbackProviders
             : [],
+          attemptTimeoutMs: Number(
+            body.attemptTimeoutMs ?? options.llm?.attemptTimeoutMs ?? 0
+          ),
           options: {
             model: body.model
           }
@@ -632,7 +642,8 @@ export function createNexusApiServer(options = {}) {
           status: guard.allowed && compliance.compliant ? "ok" : "blocked",
           provider: generation.provider,
           fallback: {
-            attempts: generation.attempts
+            attempts: generation.attempts,
+            summary: generation.summary
           },
           prompt: {
             language: builtPrompt.language,
@@ -653,6 +664,7 @@ export function createNexusApiServer(options = {}) {
         await recordApiMetric("api.ask", requestStartedAt, {
           command: "api.ask",
           durationMs: 0,
+          degraded: generation.summary.failedAttempts > 0,
           selection: {
             selectedCount: builtPrompt.context.includedChunks.length,
             suppressedCount: builtPrompt.context.suppressedChunks.length

@@ -5046,6 +5046,8 @@ run("NEXUS:10 API server exposes health sync pipeline and ask routes", async () 
     assert.equal(ask.status, 200);
     assert.equal(askPayload.status, "ok");
     assert.match(askPayload.parsed.change, /Updated auth flow/);
+    assert.equal(askPayload.fallback.summary.attemptsCount, 1);
+    assert.equal(askPayload.fallback.summary.failedAttempts, 0);
   } finally {
     if (started) {
       await server.stop();
@@ -5071,6 +5073,16 @@ run("NEXUS:10 OpenAPI builder includes dashboard and versioning endpoints", asyn
   assert.equal(Boolean(spec.paths["/api/versioning/rollback-plan"]), true);
   assert.equal(Boolean(spec.paths["/api/sync/drift"]), true);
   assert.equal(Boolean(spec.paths["/api/guard/policies"]), true);
+  assert.equal(
+    spec.paths["/api/sync/drift"].get.parameters.some(
+      (entry) => entry.name === "warningRatio"
+    ),
+    true
+  );
+  assert.equal(
+    Boolean(spec.components?.schemas?.AskRequest?.properties?.attemptTimeoutMs),
+    true
+  );
 });
 
 run("NEXUS:10 SDK client sends auth headers and query params", async () => {
@@ -5102,7 +5114,10 @@ run("NEXUS:10 SDK client sends auth headers and query params", async () => {
   await client.observabilityDashboard({ topCommands: 9 });
   await client.observabilityAlerts({ minRuns: 20 });
   await client.guardPolicies();
-  await client.syncDrift();
+  await client.syncDrift({
+    warningRatio: 0.22,
+    baselineWindow: 6
+  });
   await client.savePromptVersion({
     promptKey: "ask/default",
     content: "prompt v1"
@@ -5119,6 +5134,8 @@ run("NEXUS:10 SDK client sends auth headers and query params", async () => {
   assert.match(calls[1].url, /minRuns=20/);
   assert.match(calls[2].url, /\/api\/guard\/policies/);
   assert.match(calls[3].url, /\/api\/sync\/drift/);
+  assert.match(calls[3].url, /warningRatio=0.22/);
+  assert.match(calls[3].url, /baselineWindow=6/);
   assert.equal(
     calls.every((entry) => new Headers(entry.init.headers).get("x-api-key") === "sdk-key"),
     true
@@ -5228,7 +5245,12 @@ run("NEXUS:6 provider fallback recovers when primary provider fails", async () =
     provider: "backup",
     async generate() {
       return {
-        content: "fallback-ok"
+        content: "fallback-ok",
+        usage: {
+          inputTokens: 11,
+          outputTokens: 7,
+          totalTokens: 18
+        }
       };
     }
   });
@@ -5252,6 +5274,60 @@ run("NEXUS:6 provider fallback recovers when primary provider fails", async () =
   assert.equal(result.attempts.length, 2);
   assert.equal(result.attempts[0].ok, false);
   assert.equal(result.attempts[1].ok, true);
+  assert.equal(result.attempts[1].usage?.totalTokens, 18);
+  assert.equal(result.attempts[1].durationMs >= 0, true);
+  assert.equal(result.summary.attemptsCount, 2);
+  assert.equal(result.summary.failedAttempts, 1);
+  assert.equal(result.summary.successfulProvider, "backup");
+  assert.equal(result.summary.totalTokens, 18);
+});
+
+run("NEXUS:6 provider fallback enforces per-attempt timeout before backup", async () => {
+  const registry = createLlmProviderRegistry();
+  registry.register({
+    provider: "slow-primary",
+    async generate() {
+      await new Promise((resolve) => setTimeout(resolve, 45));
+      return {
+        content: "slow"
+      };
+    }
+  });
+  registry.register({
+    provider: "fast-backup",
+    async generate() {
+      return {
+        content: "fast-backup-ok",
+        usage: {
+          inputTokens: 4,
+          outputTokens: 5,
+          totalTokens: 9
+        }
+      };
+    }
+  });
+
+  const result = await generateWithProviderFallback(
+    {
+      get(name = "") {
+        return registry.get(name);
+      }
+    },
+    "hola",
+    {
+      provider: "slow-primary",
+      fallbackProviders: ["fast-backup"],
+      attemptTimeoutMs: 10
+    }
+  );
+
+  assert.equal(result.provider, "fast-backup");
+  assert.equal(result.generated.content, "fast-backup-ok");
+  assert.equal(result.attempts.length, 2);
+  assert.equal(result.attempts[0].ok, false);
+  assert.match(result.attempts[0].error ?? "", /timed out/i);
+  assert.equal(result.summary.failedAttempts, 1);
+  assert.equal(result.summary.successfulProvider, "fast-backup");
 });
 
 run("NEXUS:5 pipeline retries failed step and succeeds", async () => {
@@ -5334,12 +5410,29 @@ run("NEXUS:0 drift monitor stores sync history and ratios", async () => {
         unchanged: 38
       }
     });
+    await monitor.record({
+      status: "ok",
+      summary: {
+        discovered: 20,
+        created: 10,
+        changed: 0,
+        deleted: 0,
+        unchanged: 10
+      }
+    });
 
-    const report = await monitor.getReport();
+    const report = await monitor.getReport({
+      warningRatio: 0.2,
+      criticalRatio: 0.45,
+      baselineWindow: 4
+    });
 
-    assert.equal(report.summary.samples, 2);
+    assert.equal(report.summary.samples, 3);
     assert.equal(report.latest?.status, "ok");
     assert.equal(report.latest?.changeRatio > 0, true);
+    assert.equal(report.latest?.drift.level, "critical");
+    assert.equal(report.summary.levels.critical >= 1, true);
+    assert.equal(report.thresholds.warningRatio, 0.2);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -5489,11 +5582,14 @@ run("NEXUS:10 API server exposes demo, openapi, dashboard and versioning routes"
         "x-api-key": apiKey
       }
     });
-    const syncDrift = await fetch(`${baseUrl}/api/sync/drift`, {
+    const syncDrift = await fetch(
+      `${baseUrl}/api/sync/drift?warningRatio=0.2&criticalRatio=0.4&baselineWindow=6`,
+      {
       headers: {
         "x-api-key": apiKey
       }
-    });
+      }
+    );
     const dashboard = await fetch(`${baseUrl}/api/observability/dashboard?topCommands=4`, {
       headers: {
         "x-api-key": apiKey
@@ -5542,6 +5638,9 @@ run("NEXUS:10 API server exposes demo, openapi, dashboard and versioning routes"
     assert.equal(syncNow.status, 200);
     assert.equal(syncDrift.status, 200);
     assert.equal(Boolean(driftPayload.drift.latest), true);
+    assert.equal(driftPayload.drift.thresholds.warningRatio, 0.2);
+    assert.equal(driftPayload.drift.thresholds.criticalRatio, 0.4);
+    assert.equal(driftPayload.drift.thresholds.baselineWindow, 6);
     assert.equal(dashboard.status, 200);
     assert.equal(dashboardPayload.status, "ok");
     assert.equal(alerts.status, 200);
@@ -5549,6 +5648,9 @@ run("NEXUS:10 API server exposes demo, openapi, dashboard and versioning routes"
     assert.equal(askWithFallback.status, 200);
     assert.equal(fallbackPayload.provider, "mock");
     assert.equal(Array.isArray(fallbackPayload.fallback.attempts), true);
+    assert.equal(fallbackPayload.fallback.summary.failedAttempts >= 1, true);
+    assert.equal(fallbackPayload.fallback.summary.successfulProvider, "mock");
+    assert.equal(typeof fallbackPayload.fallback.summary.totalDurationMs, "number");
     assert.equal(Boolean(openapiPayload.paths["/api/versioning/prompts"]), true);
     assert.equal(Boolean(openapiPayload.paths["/api/observability/alerts"]), true);
     assert.equal(Boolean(openapiPayload.paths["/api/sync/drift"]), true);

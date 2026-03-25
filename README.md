@@ -103,7 +103,8 @@ Today it provides:
 - versioned JSON contracts for CLI automation (`--format json`)
 - CI quality gates (tests, typecheck, build, benchmarks, security checks)
 - NEXUS API + SDK + OpenAPI + visual demo (`/api/demo`)
-- guard policy profiles, sync drift, observability alerts, and rollback planning endpoints
+- guard policy profiles, sync drift (levels + configurable thresholds), observability alerts, and rollback planning endpoints
+- ask fallback telemetry (attempt latency/tokens summary) for provider failover analysis
 
 ## Current maturity snapshot
 
