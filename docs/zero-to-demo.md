@@ -5,7 +5,7 @@ Goal: go from clean checkout to a live NEXUS demo with API, dashboard, versionin
 ## 1) Bootstrap
 
 ```bash
-npm ci
+npm ci --ignore-scripts
 npm run doctor
 npm run init:config
 ```

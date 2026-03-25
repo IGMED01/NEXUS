@@ -62,6 +62,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Sync drift monitoring now classifies each run as `stable|warning|critical`, detects spike behavior against historical baseline, and supports threshold overrides via `GET /api/sync/drift` query params.
 - Domain eval suite now supports coverage policy (`qualityPolicy.requiredDomains`, `qualityPolicy.minCasesPerDomain`) and can run through API/SDK with `POST /api/evals/domain-suite`.
 - API errors now use a consistent contract (`errorCode`, `requestId`, `details`) and `x-request-id` response header; pipeline execution now exposes extended traceability (`runId`, timing summary, and per-step `attemptTrace`).
+- Installation policy is now standardized on `npm ci --ignore-scripts` (README/docs/CI), and `doctor` now reports an explicit `npm install scripts policy` check so environments can verify `ignore-scripts` safety.
 
 ### Contracts
 - Added v1 compatibility fixtures/tests for all JSON CLI commands (`version`, `doctor`, `init`, `sync-knowledge`, `ingest-security`, `select`, `teach`, `readme`, `recall`, `remember`, `close`).
