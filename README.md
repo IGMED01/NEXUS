@@ -89,6 +89,7 @@ Today it provides:
 - durable memory recall/write through Engram with degraded-mode fallbacks (`recall`, `remember`, `close`)
 - versioned JSON contracts for CLI automation (`--format json`)
 - CI quality gates (tests, typecheck, build, benchmarks, security checks)
+- NEXUS API + SDK + OpenAPI + visual demo (`/api/demo`)
 
 ## Current maturity snapshot
 
@@ -258,6 +259,7 @@ These projects are credited as architectural inspiration. They are not listed as
 - `docs/context-noise-cancellation.md`: design of the context filtering system
 - `docs/repo-split-5-repos.md`: current repository strategy: one repo now, five internal domains
 - `docs/benchmark.md`: benchmark method and metrics
+- `docs/nexus-api.md`: API endpoints, OpenAPI export, SDK usage, and demo UI flow
 - `docs/security-model.md`: scan safety model, secret redaction policy, and limits
 - `docs/skills-governance.md`: policy to approve/block skills with risk tiers and rollback rules
 - `docs/ops-runbook.md`: operational checklist for validation, degraded mode, and release hygiene
@@ -280,10 +282,13 @@ These projects are credited as architectural inspiration. They are not listed as
 - `src/orchestration/`: dynamic pipeline builder and default step executors
 - `src/sync/`: change detector, version tracker, and periodic sync scheduler
 - `src/eval/`: consistency scorer and CI gate for release blocking
+- `src/eval/domain-eval-suite.js`: domain-oriented eval suite runner for mandatory CI gate
 - `src/observability/metrics-store.js`: local command metrics store and aggregated observability report
 - `src/observability/dashboard-data.js`: dashboard-ready observability payload
 - `src/versioning/`: prompt version store + rollback planner
-- `src/api/`: auth middleware and HTTP server (`/api/ask`, `/api/guard/output`, `/api/sync`)
+- `src/interface/`: OpenAPI builder + visual demo page
+- `src/sdk/`: NEXUS API client SDK
+- `src/api/`: auth middleware and HTTP server (`/api/ask`, `/api/guard/output`, `/api/sync`, `/api/observability/dashboard`, `/api/versioning/*`, `/api/openapi.json`, `/api/demo`)
 - `src/security/prowler-ingest.js`: converter from Prowler findings JSON to LCS-compatible chunk JSON
 - `scripts/sync-pr-learnings.js`: CI helper that syncs merged PR learnings to Notion through `sync-knowledge`
 - `scripts/run-nexus-api.js`: local NEXUS API launcher
@@ -354,7 +359,10 @@ npm run release:check
 npm run benchmark
 npm run benchmark:recall
 npm run benchmark:vertical
+npm run eval:domains
+npm run benchmark:tune
 npm run security:pipeline:example
+npm run openapi:export
 npm run api:nexus
 ```
 

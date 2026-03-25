@@ -83,6 +83,9 @@ jobs:
       - name: Run portable tests
         run: npm test
 
+      - name: Run mandatory domain eval gate
+        run: npm run eval:domains
+
       - name: Run North Star quality gate
         run: npm run northstar:check -- --min-runs 20 --min-blocked-runs 1 --min-prevented-errors 1 --min-prevented-error-rate 0.005
 

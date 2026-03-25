@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NEXUS Demo Console</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --panel: #111a2e;
+      --line: #263654;
+      --text: #e8f1ff;
+      --muted: #9ab1d5;
+      --accent: #60a5fa;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    main { max-width: 1200px; margin: 0 auto; padding: 18px; display: grid; gap: 12px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+    h1 { margin: 0 0 10px; font-size: 20px; }
+    h2 { margin: 0 0 8px; font-size: 16px; color: #cfe1ff; }
+    h3 { margin: 0 0 6px; font-size: 14px; color: #c0d6ff; }
+    p,label { color: var(--muted); font-size: 13px; }
+    .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 8px; align-items: end; }
+    input, textarea, select, button { width: 100%; background: #0d1628; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+    textarea { min-height: 100px; resize: vertical; }
+    button { cursor: pointer; background: #15305a; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 920px) { .grid-2 { grid-template-columns: 1fr; } }
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 8px; }
+    .metric { border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: #0f1a30; }
+    .metric strong { display:block; font-size: 18px; color: #f4f8ff; }
+    .bar-row { display:grid; grid-template-columns: 120px 1fr 50px; gap: 8px; align-items:center; font-size:12px; }
+    .track { width:100%; height:10px; border-radius:999px; background:#1a2743; border:1px solid #203559; overflow:hidden; }
+    .fill { height:100%; background:var(--accent); }
+    .fill.warn { background: var(--warn); }
+    .fill.danger { background: var(--danger); }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 6px; }
+    pre { margin: 0; border: 1px solid #1f304f; border-radius: 10px; background: #091121; color: #d7e5ff; padding: 10px; overflow: auto; max-height: 320px; font-size: 12px; }
+    .pill { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:4px 8px; margin:0 6px 6px 0; font-size:11px; color:#c8dcff; }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>NEXUS Demo Console</h1>
+      <p>NEXUS:8 dashboard visual + NEXUS:9 version compare + NEXUS:10 API playground.</p>
+      <div class="row">
+        <label>Base URL
+          <input id="baseUrl" />
+        </label>
+        <label>API key (x-api-key)
+          <input id="apiKey" placeholder="optional" />
+        </label>
+        <label>Prompt key
+          <input id="promptKey" value="ask/default" />
+        </label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="btnHealth">Check health</button>
+        <button id="btnDashboard">Load dashboard</button>
+        <button id="btnVersions">Load versions</button>
+        <button id="btnOpenApi">OpenAPI snapshot</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Observability dashboard</h2>
+      <div id="metrics" class="metrics"></div>
+      <div id="bars" style="display:grid; gap:6px; margin-top:8px"></div>
+      <div class="grid-2" style="margin-top:10px">
+        <div>
+          <h3>Top commands</h3>
+          <table>
+            <thead><tr><th>Command</th><th>Runs</th><th>Avg ms</th><th>Blocked</th></tr></thead>
+            <tbody id="commandRows"></tbody>
+          </table>
+        </div>
+        <div>
+          <h3>Recall status</h3>
+          <div id="recallPills"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card grid-2">
+      <div>
+        <h2>Prompt versioning</h2>
+        <label>Prompt content
+          <textarea id="promptContent" placeholder="Write prompt text and save a version"></textarea>
+        </label>
+        <button id="btnSaveVersion" style="margin-top:8px">Save version</button>
+        <div class="row" style="margin-top:8px">
+          <label>Left version
+            <select id="leftVersion"></select>
+          </label>
+          <label>Right version
+            <select id="rightVersion"></select>
+          </label>
+        </div>
+        <button id="btnCompare" style="margin-top:8px">Compare versions</button>
+        <pre id="compareResult" style="margin-top:8px">No comparison yet.</pre>
+      </div>
+      <div>
+        <h2>Ask demo</h2>
+        <label>Question
+          <input id="askQuestion" value="¿Qué cambió en auth?" />
+        </label>
+        <label>Task
+          <input id="askTask" value="Harden auth middleware" />
+        </label>
+        <label>Objective
+          <input id="askObjective" value="Teach validation order" />
+        </label>
+        <button id="btnAsk" style="margin-top:8px">Run /api/ask</button>
+        <pre id="askResult" style="margin-top:8px">No ask call yet.</pre>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Raw response</h2>
+      <pre id="rawOutput">Ready.</pre>
+    </section>
+  </main>
+
+  <script>
+    const state = { versions: [] };
+    const $ = (id) => document.getElementById(id);
+    const baseUrl = $("baseUrl");
+    const apiKey = $("apiKey");
+    const promptKey = $("promptKey");
+    const rawOutput = $("rawOutput");
+
+    baseUrl.value = window.location.origin;
+
+    function pct(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(100, Math.round(n * 100)));
+    }
+
+    function printRaw(payload) {
+      rawOutput.textContent = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+    }
+
+    async function apiFetch(path, options = {}) {
+      const headers = new Headers(options.headers || {});
+      const key = (apiKey.value || "").trim();
+      if (key) headers.set("x-api-key", key);
+      if (options.body && !headers.has("content-type")) {
+        headers.set("content-type", "application/json");
+      }
+
+      const response = await fetch(baseUrl.value.replace(/\/$/, "") + path, {
+        ...options,
+        headers
+      });
+
+      const contentType = response.headers.get("content-type") || "";
+      const payload = contentType.includes("application/json") ? await response.json() : await response.text();
+
+      if (!response.ok) {
+        throw new Error(typeof payload === "string" ? payload : JSON.stringify(payload, null, 2));
+      }
+
+      return payload;
+    }
+
+    function renderDashboard(payload) {
+      const dashboard = payload.dashboard || payload;
+      const health = dashboard.health || {};
+      const totals = dashboard.totals || {};
+      const recall = dashboard.recall || {};
+      const commands = Array.isArray(dashboard.commands) ? dashboard.commands : [];
+
+      const metrics = [
+        ["Runs", totals.runs || 0],
+        ["Avg ms", totals.averageDurationMs || 0],
+        ["Blocked", pct(health.blockedRate || 0) + "%"],
+        ["Recall hit", pct(health.recallHitRate || 0) + "%"]
+      ];
+
+      const metricRoot = $("metrics");
+      metricRoot.innerHTML = "";
+      metrics.forEach(([label, value]) => {
+        const node = document.createElement("article");
+        node.className = "metric";
+        node.innerHTML = "<strong>" + value + "</strong><span>" + label + "</span>";
+        metricRoot.appendChild(node);
+      });
+
+      const bars = [
+        ["Blocked", health.blockedRate || 0],
+        ["Degraded", health.degradedRate || 0],
+        ["Recall hit", health.recallHitRate || 0]
+      ];
+      const barsRoot = $("bars");
+      barsRoot.innerHTML = "";
+      bars.forEach(([label, value]) => {
+        const percent = pct(value);
+        const css = percent >= 70 ? "danger" : percent >= 40 ? "warn" : "";
+        const row = document.createElement("div");
+        row.className = "bar-row";
+        row.innerHTML =
+          "<span>" + label + "</span>" +
+          "<div class='track'><div class='fill " + css + "' style='width:" + percent + "%'></div></div>" +
+          "<strong>" + percent + "%</strong>";
+        barsRoot.appendChild(row);
+      });
+
+      const commandRows = $("commandRows");
+      commandRows.innerHTML = "";
+      commands.forEach((command) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+          "<td>" + command.command + "</td>" +
+          "<td>" + command.runs + "</td>" +
+          "<td>" + command.averageDurationMs + "</td>" +
+          "<td>" + pct(command.blockedRate || 0) + "%</td>";
+        commandRows.appendChild(tr);
+      });
+
+      const recallPills = $("recallPills");
+      recallPills.innerHTML = "";
+      const statuses = recall.byStatus || {};
+      const keys = Object.keys(statuses);
+
+      if (!keys.length) {
+        recallPills.innerHTML = "<span class='pill'>No recall samples yet</span>";
+        return;
+      }
+
+      keys.forEach((key) => {
+        const span = document.createElement("span");
+        span.className = "pill";
+        span.textContent = key + ": " + statuses[key];
+        recallPills.appendChild(span);
+      });
+    }
+
+    function refreshVersionSelects() {
+      const left = $("leftVersion");
+      const right = $("rightVersion");
+      const options = state.versions
+        .map((version) => "<option value='" + version.id + "'>" + version.id + "</option>")
+        .join("");
+      left.innerHTML = options;
+      right.innerHTML = options;
+
+      if (state.versions.length >= 2) {
+        left.value = state.versions[state.versions.length - 1].id;
+        right.value = state.versions[0].id;
+      }
+    }
+
+    async function loadVersions() {
+      const payload = await apiFetch("/api/versioning/prompts?promptKey=" + encodeURIComponent(promptKey.value));
+      state.versions = payload.versions || [];
+      refreshVersionSelects();
+      printRaw(payload);
+      return payload;
+    }
+
+    async function saveVersion() {
+      const content = ($("promptContent").value || "").trim();
+      if (!content) throw new Error("Prompt content is required");
+
+      const payload = await apiFetch("/api/versioning/prompts", {
+        method: "POST",
+        body: JSON.stringify({
+          promptKey: promptKey.value,
+          content,
+          metadata: { source: "demo-ui" }
+        })
+      });
+
+      $("promptContent").value = "";
+      await loadVersions();
+      printRaw(payload);
+    }
+
+    async function compareVersions() {
+      const leftId = $("leftVersion").value;
+      const rightId = $("rightVersion").value;
+      if (!leftId || !rightId) throw new Error("Select both versions first");
+
+      const payload = await apiFetch(
+        "/api/versioning/compare?leftId=" + encodeURIComponent(leftId) + "&rightId=" + encodeURIComponent(rightId)
+      );
+      $("compareResult").textContent = JSON.stringify(payload.diff, null, 2);
+      printRaw(payload);
+    }
+
+    async function runAsk() {
+      const payload = await apiFetch("/api/ask", {
+        method: "POST",
+        body: JSON.stringify({
+          question: $("askQuestion").value,
+          task: $("askTask").value,
+          objective: $("askObjective").value,
+          language: "es"
+        })
+      });
+      $("askResult").textContent = JSON.stringify(payload, null, 2);
+      printRaw(payload);
+    }
+
+    function bind(id, fn) {
+      $(id).addEventListener("click", async () => {
+        try {
+          await fn();
+        } catch (error) {
+          printRaw({ status: "error", error: error instanceof Error ? error.message : String(error) });
+        }
+      });
+    }
+
+    bind("btnHealth", async () => printRaw(await apiFetch("/api/health")));
+    bind("btnDashboard", async () => {
+      const payload = await apiFetch("/api/observability/dashboard?topCommands=8");
+      renderDashboard(payload);
+      printRaw(payload);
+    });
+    bind("btnVersions", loadVersions);
+    bind("btnOpenApi", async () => printRaw(await apiFetch("/api/openapi.json")));
+    bind("btnSaveVersion", saveVersion);
+    bind("btnCompare", compareVersions);
+    bind("btnAsk", runAsk);
+
+    apiFetch("/api/health").then(printRaw).catch(() => {});
+  </script>
+</body>
+</html>

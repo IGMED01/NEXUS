@@ -189,6 +189,7 @@ Incluye:
 - memoria durable con Engram y modo degradado
 - contratos JSON estables para automatizacion
 - gates de calidad en CI (tests, typecheck, build y benchmarks)
+- NEXUS API con SDK, OpenAPI y demo visual (`/api/demo`)
 
 ## Snapshot actual de madurez
 
@@ -229,6 +230,7 @@ Lectura correcta:
 - `docs/repo-split-5-repos.md`: estrategia actual del repositorio: 1 repo ahora, 5 dominios internos
 - `docs/status-actual.md`: estado operativo actual y hitos cerrados
 - `docs/usage.md`: como usar la CLI
+- `docs/nexus-api.md`: endpoints API, export OpenAPI, uso del SDK y demo UI
 - `learning-context.config.json`: defaults versionados del proyecto
 - `VERSIONING.md`: politica para alinear version de paquete, tags y releases
 - `src/ci/pr-learnings.js`: mapeador de metadata de PR mergeada hacia payload de aprendizaje durable
@@ -241,11 +243,13 @@ Lectura correcta:
 - `src/llm/`: registro de providers, adapter Claude, prompt builder y response parser
 - `src/orchestration/`: pipeline builder dinamico y executors por defecto
 - `src/sync/`: change detector, version tracker y scheduler de sync
-- `src/eval/`: consistency scorer + CI gate
+- `src/eval/`: consistency scorer + CI gate + suite de eval por dominio
 - `src/observability/metrics-store.js`: almacenamiento local de metricas de comandos y reporte agregado
 - `src/observability/dashboard-data.js`: payload agregado para dashboard
 - `src/versioning/`: versionado de prompts y plan de rollback
-- `src/api/`: auth middleware y servidor HTTP (`/api/ask`, `/api/guard/output`, `/api/sync`)
+- `src/interface/`: constructor OpenAPI + demo UI visual
+- `src/sdk/`: cliente SDK de la API NEXUS
+- `src/api/`: auth middleware y servidor HTTP (`/api/ask`, `/api/guard/output`, `/api/sync`, `/api/observability/dashboard`, `/api/versioning/*`, `/api/openapi.json`, `/api/demo`)
 - `src/security/prowler-ingest.js`: convertidor de findings JSON de Prowler a JSON de chunks compatible con la CLI
 - `scripts/sync-pr-learnings.js`: helper de CI para sincronizar aprendizajes de PR mergeadas hacia Notion usando `sync-knowledge`
 - `scripts/run-nexus-api.js`: launcher local de la API NEXUS
@@ -315,7 +319,10 @@ npm run release:check
 npm run benchmark
 npm run benchmark:recall
 npm run benchmark:vertical
+npm run eval:domains
+npm run benchmark:tune
 npm run security:pipeline:example
+npm run openapi:export
 npm run api:nexus
 ```
 

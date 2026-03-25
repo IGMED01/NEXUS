@@ -14,6 +14,11 @@ import { createChangeDetector } from "../sync/change-detector.js";
 import { createSyncScheduler } from "../sync/sync-scheduler.js";
 import { createPipelineBuilder, buildDefaultNexusPipeline } from "../orchestration/pipeline-builder.js";
 import { createDefaultExecutors } from "../orchestration/default-executors.js";
+import { buildDashboardData } from "../observability/dashboard-data.js";
+import { getObservabilityReport, recordCommandMetric } from "../observability/metrics-store.js";
+import { createPromptVersionStore } from "../versioning/prompt-version-store.js";
+import { buildNexusOpenApiSpec } from "../interface/nexus-openapi.js";
+import { buildNexusDemoPage } from "../interface/nexus-demo-page.js";
 
 /**
  * @param {http.IncomingMessage} request
@@ -51,10 +56,21 @@ function sendJson(response, statusCode, payload) {
 }
 
 /**
- * @param {string | undefined} value
+ * @param {http.ServerResponse} response
+ * @param {number} statusCode
+ * @param {string} html
  */
-function normalizePathname(value) {
-  return String(value ?? "").split("?")[0] || "/";
+function sendHtml(response, statusCode, html) {
+  response.statusCode = statusCode;
+  response.setHeader("content-type", "text/html; charset=utf-8");
+  response.end(html);
+}
+
+/**
+ * @param {http.IncomingMessage} request
+ */
+function getRequestUrl(request) {
+  return new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
 }
 
 /**
@@ -81,7 +97,14 @@ function normalizePathname(value) {
  *     autoStart?: boolean
  *   },
  *   repositoryFilePath?: string,
- *   outputAuditFilePath?: string
+ *   outputAuditFilePath?: string,
+ *   observabilityFilePath?: string,
+ *   promptVersionFilePath?: string,
+ *   openApi?: {
+ *     title?: string,
+ *     version?: string,
+ *     description?: string
+ *   }
  * }} [options]
  */
 export function createNexusApiServer(options = {}) {
@@ -153,14 +176,45 @@ export function createNexusApiServer(options = {}) {
       }
     }
   });
+  const observabilityFilePath = options.observabilityFilePath;
+  const promptVersionStore = createPromptVersionStore({
+    filePath: options.promptVersionFilePath
+  });
+  const openApiSpec = buildNexusOpenApiSpec({
+    title: options.openApi?.title,
+    version: options.openApi?.version,
+    description: options.openApi?.description
+  });
+  const demoPage = buildNexusDemoPage();
 
   const host = options.host ?? "127.0.0.1";
   const port = Math.max(0, Number(options.port ?? 8787));
 
+  /**
+   * @param {string} command
+   * @param {number} startedAt
+   * @param {Parameters<typeof recordCommandMetric>[0]} [metric]
+   */
+  async function recordApiMetric(command, startedAt, metric = { command, durationMs: 0 }) {
+    await recordCommandMetric(
+      {
+        ...metric,
+        command,
+        durationMs: Math.max(0, Date.now() - startedAt)
+      },
+      {
+        filePath: observabilityFilePath
+      }
+    );
+  }
+
   const server = http.createServer(async (request, response) => {
+    const requestStartedAt = Date.now();
+
     try {
       const method = request.method ?? "GET";
-      const pathname = normalizePathname(request.url);
+      const requestUrl = getRequestUrl(request);
+      const pathname = requestUrl.pathname || "/";
 
       if (method === "GET" && pathname === "/api/health") {
         sendJson(response, 200, {
@@ -168,6 +222,26 @@ export function createNexusApiServer(options = {}) {
           service: "nexus-api",
           time: new Date().toISOString()
         });
+        await recordApiMetric("api.health", requestStartedAt);
+        return;
+      }
+
+      if (method === "GET" && pathname === "/api/openapi.json") {
+        sendJson(response, 200, {
+          ...openApiSpec,
+          servers: [
+            {
+              url: `http://${request.headers.host ?? `${host}:${port}`}`
+            }
+          ]
+        });
+        await recordApiMetric("api.openapi", requestStartedAt);
+        return;
+      }
+
+      if (method === "GET" && pathname === "/api/demo") {
+        sendHtml(response, 200, demoPage);
+        await recordApiMetric("api.demo", requestStartedAt);
         return;
       }
 
@@ -181,6 +255,15 @@ export function createNexusApiServer(options = {}) {
           error: authResult.error,
           reason: authResult.reason
         });
+        await recordApiMetric("api.auth.blocked", requestStartedAt, {
+          command: "api.auth.blocked",
+          durationMs: 0,
+          degraded: true,
+          safety: {
+            blocked: true,
+            reason: authResult.reason ?? "unauthorized"
+          }
+        });
         return;
       }
 
@@ -190,6 +273,7 @@ export function createNexusApiServer(options = {}) {
           scheduler: scheduler.getStatus(),
           lastSync: lastSyncResult
         });
+        await recordApiMetric("api.sync.status", requestStartedAt);
         return;
       }
 
@@ -200,6 +284,126 @@ export function createNexusApiServer(options = {}) {
           scheduler: scheduler.getStatus(),
           lastSync: lastSyncResult
         });
+        await recordApiMetric("api.sync.run", requestStartedAt);
+        return;
+      }
+
+      if (method === "GET" && pathname === "/api/observability/dashboard") {
+        const topCommands = Math.max(
+          1,
+          Math.trunc(Number(requestUrl.searchParams.get("topCommands") ?? 8))
+        );
+        const report = await getObservabilityReport({
+          filePath: observabilityFilePath
+        });
+        const dashboard = await buildDashboardData({
+          metrics: report,
+          topCommands
+        });
+
+        sendJson(response, 200, {
+          status: "ok",
+          dashboard
+        });
+        await recordApiMetric("api.observability.dashboard", requestStartedAt);
+        return;
+      }
+
+      if (method === "GET" && pathname === "/api/versioning/prompts") {
+        const promptKey = String(requestUrl.searchParams.get("promptKey") ?? "").trim();
+
+        if (!promptKey) {
+          sendJson(response, 400, {
+            status: "error",
+            error: "Missing 'promptKey' query parameter."
+          });
+          await recordApiMetric("api.versioning.list", requestStartedAt, {
+            command: "api.versioning.list",
+            durationMs: 0,
+            degraded: true,
+            safety: {
+              blocked: true,
+              reason: "missing-prompt-key"
+            }
+          });
+          return;
+        }
+
+        const versions = await promptVersionStore.listVersions(promptKey);
+        sendJson(response, 200, {
+          status: "ok",
+          promptKey,
+          versions
+        });
+        await recordApiMetric("api.versioning.list", requestStartedAt);
+        return;
+      }
+
+      if (method === "POST" && pathname === "/api/versioning/prompts") {
+        const body = /** @type {{ promptKey?: string, content?: string, metadata?: Record<string, unknown> }} */ (
+          await readJsonBody(request)
+        );
+        const promptKey = String(body.promptKey ?? "").trim();
+        const content = String(body.content ?? "").trim();
+
+        if (!promptKey || !content) {
+          sendJson(response, 400, {
+            status: "error",
+            error: "Missing 'promptKey' or 'content' in request body."
+          });
+          await recordApiMetric("api.versioning.save", requestStartedAt, {
+            command: "api.versioning.save",
+            durationMs: 0,
+            degraded: true,
+            safety: {
+              blocked: true,
+              reason: "missing-prompt-version-input"
+            }
+          });
+          return;
+        }
+
+        const version = await promptVersionStore.saveVersion({
+          promptKey,
+          content,
+          metadata: body.metadata ?? {}
+        });
+
+        sendJson(response, 200, {
+          status: "ok",
+          version
+        });
+        await recordApiMetric("api.versioning.save", requestStartedAt);
+        return;
+      }
+
+      if (method === "GET" && pathname === "/api/versioning/compare") {
+        const leftId = String(requestUrl.searchParams.get("leftId") ?? "").trim();
+        const rightId = String(requestUrl.searchParams.get("rightId") ?? "").trim();
+
+        if (!leftId || !rightId) {
+          sendJson(response, 400, {
+            status: "error",
+            error: "Missing 'leftId' or 'rightId' query parameters."
+          });
+          await recordApiMetric("api.versioning.compare", requestStartedAt, {
+            command: "api.versioning.compare",
+            durationMs: 0,
+            degraded: true,
+            safety: {
+              blocked: true,
+              reason: "missing-version-diff-input"
+            }
+          });
+          return;
+        }
+
+        const diff = await promptVersionStore.diffVersions(leftId, rightId);
+        sendJson(response, 200, {
+          status: "ok",
+          diff
+        });
+        await recordApiMetric("api.versioning.compare", requestStartedAt);
         return;
       }
 
@@ -226,6 +430,14 @@ export function createNexusApiServer(options = {}) {
           guard,
           compliance
         });
+        await recordApiMetric("api.guard.output", requestStartedAt, {
+          command: "api.guard.output",
+          durationMs: 0,
+          safety: {
+            blocked: !(guard.allowed && compliance.compliant),
+            reason: guard.reasons[0] ?? compliance.violations[0] ?? ""
+          }
+        });
         return;
       }
 
@@ -240,6 +452,7 @@ export function createNexusApiServer(options = {}) {
           status: "ok",
           pipeline: result
         });
+        await recordApiMetric("api.pipeline.run", requestStartedAt);
         return;
       }
 
@@ -316,6 +529,18 @@ export function createNexusApiServer(options = {}) {
           guard,
           compliance
         });
+        await recordApiMetric("api.ask", requestStartedAt, {
+          command: "api.ask",
+          durationMs: 0,
+          selection: {
+            selectedCount: builtPrompt.context.includedChunks.length,
+            suppressedCount: builtPrompt.context.suppressedChunks.length
+          },
+          safety: {
+            blocked: !(guard.allowed && compliance.compliant),
+            reason: guard.reasons[0] ?? compliance.violations[0] ?? ""
+          }
+        });
         return;
       }
 
@@ -323,10 +548,28 @@ export function createNexusApiServer(options = {}) {
         status: "error",
         error: `Route ${method} ${pathname} not found.`
       });
+      await recordApiMetric("api.route.404", requestStartedAt, {
+        command: "api.route.404",
+        durationMs: 0,
+        degraded: true,
+        safety: {
+          blocked: true,
+          reason: "route-not-found"
+        }
+      });
     } catch (error) {
       sendJson(response, 500, {
         status: "error",
         error: error instanceof Error ? error.message : String(error)
+      });
+      await recordApiMetric("api.route.500", requestStartedAt, {
+        command: "api.route.500",
+        durationMs: 0,
+        degraded: true,
+        safety: {
+          blocked: true,
+          reason: "internal-error"
+        }
       });
     }
   });
@@ -337,6 +580,8 @@ export function createNexusApiServer(options = {}) {
     server,
     scheduler,
     registry,
+    promptVersionStore,
+    openApiSpec,
     async start() {
       await new Promise((resolve, reject) => {
         server.once("error", reject);
