@@ -1320,6 +1320,7 @@ run("doctor reports missing dependencies as actionable warnings", async () => {
     const taskSafetyCheck = result.checks.find((check) => check.id === "task-safety-gate");
     const focusSafetyCheck = result.checks.find((check) => check.id === "focus-safety-gate");
     const memoryBackendCheck = result.checks.find((check) => check.id === "memory-backend");
+    const installPolicyCheck = result.checks.find((check) => check.id === "npm-install-scripts-policy");
 
     assert.ok(dependencyCheck);
     assert.equal(dependencyCheck.status, "warn");
@@ -1336,7 +1337,91 @@ run("doctor reports missing dependencies as actionable warnings", async () => {
     assert.ok(memoryBackendCheck);
     assert.equal(memoryBackendCheck.status, "pass");
     assert.match(memoryBackendCheck.detail, /engram primary \+ local fallback/i);
+    assert.ok(installPolicyCheck);
+    assert.equal(["pass", "warn"].includes(installPolicyCheck.status), true);
+    assert.match(installPolicyCheck.detail, /ignore-scripts/i);
   } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("doctor reports npm install script policy when ignore-scripts is enabled", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-doctor-ignore-scripts-on-"));
+  const previousPolicy = process.env.npm_config_ignore_scripts;
+
+  try {
+    process.env.npm_config_ignore_scripts = "true";
+    await writeFile(
+      path.join(tempRoot, "package.json"),
+      JSON.stringify({ name: "doctor-ignore-scripts-on-fixture" }, null, 2),
+      "utf8"
+    );
+
+    const config = defaultProjectConfig();
+    config.project = "doctor-ignore-scripts-on-fixture";
+    config.workspace = ".";
+
+    const result = await runProjectDoctor({
+      cwd: tempRoot,
+      configInfo: {
+        found: true,
+        path: path.join(tempRoot, "learning-context.config.json"),
+        config
+      }
+    });
+
+    const installPolicyCheck = result.checks.find((check) => check.id === "npm-install-scripts-policy");
+
+    assert.ok(installPolicyCheck);
+    assert.equal(installPolicyCheck.status, "pass");
+    assert.match(installPolicyCheck.detail, /ignore-scripts=true/i);
+  } finally {
+    if (previousPolicy === undefined) {
+      delete process.env.npm_config_ignore_scripts;
+    } else {
+      process.env.npm_config_ignore_scripts = previousPolicy;
+    }
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("doctor warns when npm install scripts are not ignored by default", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "lcs-doctor-ignore-scripts-off-"));
+  const previousPolicy = process.env.npm_config_ignore_scripts;
+
+  try {
+    process.env.npm_config_ignore_scripts = "false";
+    await writeFile(
+      path.join(tempRoot, "package.json"),
+      JSON.stringify({ name: "doctor-ignore-scripts-off-fixture" }, null, 2),
+      "utf8"
+    );
+
+    const config = defaultProjectConfig();
+    config.project = "doctor-ignore-scripts-off-fixture";
+    config.workspace = ".";
+
+    const result = await runProjectDoctor({
+      cwd: tempRoot,
+      configInfo: {
+        found: true,
+        path: path.join(tempRoot, "learning-context.config.json"),
+        config
+      }
+    });
+
+    const installPolicyCheck = result.checks.find((check) => check.id === "npm-install-scripts-policy");
+
+    assert.ok(installPolicyCheck);
+    assert.equal(installPolicyCheck.status, "warn");
+    assert.match(installPolicyCheck.detail, /ignore-scripts=false/i);
+    assert.match(installPolicyCheck.fix, /npm ci --ignore-scripts/i);
+  } finally {
+    if (previousPolicy === undefined) {
+      delete process.env.npm_config_ignore_scripts;
+    } else {
+      process.env.npm_config_ignore_scripts = previousPolicy;
+    }
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

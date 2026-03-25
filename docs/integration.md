@@ -6,11 +6,12 @@ _For operators and integrators who want to run NEXUS context workflows (`NEXUS:3
 
 ```bash
 node --version    # >= 20
-npm install       # from the project root
+npm ci --ignore-scripts       # from the project root
 node src/cli.js doctor --format json
 ```
 
 Doctor must return `"status": "ok"` on all critical checks. Fix any `fail` before proceeding.
+For install safety, keep an eye on the `npm install scripts policy` doctor check (prefer `ignore-scripts=true` or explicit `npm ci --ignore-scripts`).
 
 ## 1. Select context (minimum viable flow)
 
