@@ -92,7 +92,7 @@ export function createClaudeProvider(options = {}) {
       }
 
       const controller = new AbortController();
-      const timeoutMs = Math.max(1000, Number(options.timeoutMs ?? 30000));
+      const timeoutMs = Math.max(1000, Number(generateOptions.timeoutMs ?? options.timeoutMs ?? 30000));
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
       try {

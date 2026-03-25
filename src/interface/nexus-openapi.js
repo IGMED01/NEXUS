@@ -86,6 +86,7 @@ export function buildNexusOpenApiSpec(options = {}) {
                 type: "string"
               }
             },
+            attemptTimeoutMs: { type: "integer", minimum: 0 },
             model: { type: "string" },
             tokenBudget: { type: "integer" },
             maxChunks: { type: "integer" },
@@ -167,6 +168,32 @@ export function buildNexusOpenApiSpec(options = {}) {
       "/api/sync/drift": {
         get: {
           summary: "Sync drift report across runs",
+          parameters: [
+            {
+              name: "warningRatio",
+              in: "query",
+              required: false,
+              schema: { type: "number", minimum: 0, maximum: 1 }
+            },
+            {
+              name: "criticalRatio",
+              in: "query",
+              required: false,
+              schema: { type: "number", minimum: 0, maximum: 1 }
+            },
+            {
+              name: "spikeMultiplier",
+              in: "query",
+              required: false,
+              schema: { type: "number", minimum: 0 }
+            },
+            {
+              name: "baselineWindow",
+              in: "query",
+              required: false,
+              schema: { type: "integer", minimum: 1 }
+            }
+          ],
           responses: {
             "200": { description: "Drift report" }
           }
