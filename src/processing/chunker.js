@@ -1,7 +1,7 @@
 // @ts-check
 
 import { createHash } from "node:crypto";
-import { parseStructure } from "./structure-parser.js";
+import { parseDocumentStructure, parseStructure } from "./structure-parser.js";
 
 /**
  * @typedef {import("../types/core-contracts.d.ts").ChunkOptions} ChunkOptions
@@ -385,29 +385,131 @@ export function chunkDocument(text, options = {}) {
   const source = typeof options.source === "string" && options.source.trim() ? options.source : "inline";
   const maxChunkChars =
     typeof options.maxCharsPerChunk === "number" && Number.isFinite(options.maxCharsPerChunk)
-      ? Math.max(200, Math.trunc(options.maxCharsPerChunk))
-      : DEFAULT_MAX_CHARS;
-  const minChunkChars =
-    typeof options.minCharsPerChunk === "number" && Number.isFinite(options.minCharsPerChunk)
-      ? Math.max(50, Math.trunc(options.minCharsPerChunk))
-      : DEFAULT_MIN_CHARS;
+      ? Math.max(300, Math.trunc(options.maxCharsPerChunk))
+      : 1600;
+  const sections = parseDocumentStructure(text);
 
-  const chunks = smartChunk(text, {
-    maxChunkChars,
-    minChunkChars
-  });
+  /** @type {Array<{ id: string, content: string, metadata: { source: string, sectionTitle: string, sectionLevel: number, startLine: number, endLine: number, index: number, strategy: string } }>} */
+  const chunks = [];
+  let globalIndex = 0;
 
-  return chunks.map((chunk, index) => ({
-    id: chunk.id || `${source}:${index}`,
-    content: chunk.content,
-    metadata: {
-      source,
-      sectionTitle: chunk.section ?? "document",
-      sectionLevel: chunk.section ? 2 : 1,
-      startLine: Number.isFinite(chunk.startLine) ? chunk.startLine : 0,
-      endLine: Number.isFinite(chunk.endLine) ? chunk.endLine : 0,
-      index,
-      strategy: chunk.strategy ?? "semantic"
+  for (const section of sections) {
+    const pieces = splitLegacyLargeContent(section.content, maxChunkChars);
+
+    for (let index = 0; index < pieces.length; index += 1) {
+      const piece = pieces[index];
+      chunks.push({
+        id: `${source}#${section.id}-${index + 1}`,
+        content: piece,
+        metadata: {
+          source,
+          sectionTitle: section.title,
+          sectionLevel: section.level,
+          startLine: section.startLine,
+          endLine: section.endLine,
+          index: globalIndex,
+          strategy: "section"
+        }
+      });
+      globalIndex += 1;
     }
-  }));
+  }
+
+  return chunks;
+}
+
+/**
+ * @param {string} content
+ * @param {number} maxChars
+ * @returns {string[]}
+ */
+function splitLegacyLargeContent(content, maxChars) {
+  const normalized = String(content ?? "").trim();
+
+  if (!normalized) {
+    return [""];
+  }
+
+  if (normalized.length <= maxChars) {
+    return [normalized];
+  }
+
+  const paragraphs = normalized
+    .split(/\n\s*\n/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  /** @type {string[]} */
+  const output = [];
+  let current = "";
+
+  for (const paragraph of paragraphs) {
+    const candidate = current ? `${current}\n\n${paragraph}` : paragraph;
+
+    if (candidate.length <= maxChars) {
+      current = candidate;
+      continue;
+    }
+
+    if (current) {
+      output.push(current);
+    }
+
+    if (paragraph.length <= maxChars) {
+      current = paragraph;
+      continue;
+    }
+
+    const hardPieces = hardSplitLegacy(paragraph, maxChars);
+    for (let index = 0; index < hardPieces.length - 1; index += 1) {
+      output.push(hardPieces[index]);
+    }
+    current = hardPieces[hardPieces.length - 1] ?? "";
+  }
+
+  if (current) {
+    output.push(current);
+  }
+
+  return output;
+}
+
+/**
+ * @param {string} content
+ * @param {number} maxChars
+ * @returns {string[]}
+ */
+function hardSplitLegacy(content, maxChars) {
+  /** @type {string[]} */
+  const pieces = [];
+  let current = "";
+
+  for (const sentence of content.split(/(?<=[.!?])\s+/u)) {
+    const candidate = current ? `${current} ${sentence}` : sentence;
+
+    if (candidate.length <= maxChars) {
+      current = candidate;
+      continue;
+    }
+
+    if (current) {
+      pieces.push(current);
+    }
+
+    if (sentence.length <= maxChars) {
+      current = sentence;
+      continue;
+    }
+
+    for (let start = 0; start < sentence.length; start += maxChars) {
+      pieces.push(sentence.slice(start, start + maxChars));
+    }
+    current = "";
+  }
+
+  if (current) {
+    pieces.push(current);
+  }
+
+  return pieces.length ? pieces : [content.slice(0, maxChars)];
 }

@@ -281,5 +281,69 @@ export function tagChunk(chunk, context) {
  * @returns {ChunkTags}
  */
 export function tagChunkMetadata(chunk, context) {
-  return tagChunk(chunk, context);
+  const source = String(chunk?.source ?? "");
+  const kind = String(chunk?.kind ?? "doc");
+  const text = `${source}\n${String(chunk?.content ?? "")}`;
+
+  const domainHit = LEGACY_DOMAIN_PATTERNS.find((entry) => entry.pattern.test(text));
+  const topicHit = LEGACY_TOPIC_PATTERNS.find((entry) => entry.pattern.test(text));
+
+  return {
+    topic: topicHit?.topic ?? "general",
+    domain: domainHit?.domain ?? "general",
+    type: normalizeLegacyType(kind),
+    confidence: computeLegacyConfidence({
+      hasTopic: Boolean(topicHit),
+      hasDomain: Boolean(domainHit),
+      kind
+    })
+  };
+}
+
+const LEGACY_DOMAIN_PATTERNS = [
+  { domain: "security", pattern: /\b(auth|token|jwt|secret|encryption|security)\b/iu },
+  { domain: "memory", pattern: /\b(memory|recall|engram|session|knowledge)\b/iu },
+  { domain: "observability", pattern: /\b(metric|trace|observability|dashboard|monitor)\b/iu },
+  { domain: "api", pattern: /\b(api|endpoint|route|http|request|response)\b/iu },
+  { domain: "testing", pattern: /\b(test|assert|fixture|spec|mock)\b/iu }
+];
+
+const LEGACY_TOPIC_PATTERNS = [
+  { topic: "auth-validation", pattern: /\b(auth|validation|session)\b/iu },
+  { topic: "context-selection", pattern: /\b(context|chunk|selector|ranking|noise)\b/iu },
+  { topic: "teaching", pattern: /\b(teach|mentor|learning|packet)\b/iu },
+  { topic: "sync", pattern: /\b(sync|notion|integration|webhook)\b/iu },
+  { topic: "release-quality", pattern: /\b(ci|benchmark|release|versioning|contract)\b/iu }
+];
+
+/**
+ * @param {string} kind
+ */
+function normalizeLegacyType(kind) {
+  if (kind === "code" || kind === "test" || kind === "spec" || kind === "log" || kind === "chat") {
+    return kind;
+  }
+
+  return "doc";
+}
+
+/**
+ * @param {{ hasTopic: boolean, hasDomain: boolean, kind: string }} input
+ */
+function computeLegacyConfidence(input) {
+  let score = 0.45;
+
+  if (input.hasTopic) {
+    score += 0.2;
+  }
+
+  if (input.hasDomain) {
+    score += 0.2;
+  }
+
+  if (input.kind === "code" || input.kind === "test" || input.kind === "spec") {
+    score += 0.1;
+  }
+
+  return Math.max(0, Math.min(0.95, Number(score.toFixed(2))));
 }

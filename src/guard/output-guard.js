@@ -345,3 +345,66 @@ registerOutputGuardRule("length-check", (input, content, config) => {
 
   return { blocked: false, modified: false, content, modifications };
 });
+
+/**
+ * Backward-compatible helper used by legacy tests/modules.
+ *
+ * @param {string} output
+ * @param {{
+ *   blockOnSecretSignal?: boolean,
+ *   blockedTerms?: string[],
+ *   domainScope?: { allowedDomains?: string[] }
+ * }} [options]
+ */
+export function enforceOutputGuard(output, options = {}) {
+  const text = String(output ?? "");
+  /** @type {string[]} */
+  const reasons = [];
+
+  if (options.blockOnSecretSignal) {
+    const hasSecretSignal =
+      /sk-(?:live|test)-[A-Za-z0-9]/i.test(text) ||
+      /\b(?:api[_-]?key|authorization|bearer)\b/i.test(text);
+    if (hasSecretSignal) {
+      reasons.push("secret-signal-detected");
+    }
+  }
+
+  for (const term of Array.isArray(options.blockedTerms) ? options.blockedTerms : []) {
+    const candidate = String(term ?? "").trim();
+    if (!candidate) {
+      continue;
+    }
+    if (text.toLowerCase().includes(candidate.toLowerCase())) {
+      reasons.push(`blocked-term:${candidate}`);
+    }
+  }
+
+  const allowedDomains = Array.isArray(options.domainScope?.allowedDomains)
+    ? options.domainScope.allowedDomains.map((entry) => String(entry).trim().toLowerCase()).filter(Boolean)
+    : [];
+  if (allowedDomains.length > 0) {
+    const domainKeywords = {
+      security: ["security", "token", "auth", "authorization", "jwt", "secret"],
+      observability: ["observability", "metric", "trace", "dashboard", "alert", "logs"]
+    };
+    /** @type {Array<"security" | "observability">} */
+    const knownDomains = ["security", "observability"];
+    for (const domain of knownDomains) {
+      if (allowedDomains.includes(domain)) {
+        continue;
+      }
+      if (domainKeywords[domain].some((keyword) => text.toLowerCase().includes(keyword))) {
+        reasons.push(`domain-scope-outside:${domain}`);
+      }
+    }
+  }
+
+  const blocked = reasons.length > 0;
+  return {
+    allowed: !blocked,
+    action: blocked ? "block" : "allow",
+    reasons,
+    output: blocked ? "" : text
+  };
+}

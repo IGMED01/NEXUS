@@ -273,3 +273,26 @@ export function parseStructure(text, _sourceHint) {
 
   return { sections, tables, codeBlocks, lists, metadata };
 }
+
+/**
+ * Backward-compatible alias used by legacy modules/tests.
+ *
+ * @param {string} text
+ * @param {string} [_sourceHint]
+ */
+export function parseDocumentStructure(text, _sourceHint) {
+  const parsed = parseStructure(text, _sourceHint);
+
+  return parsed.sections.map((section, index) => {
+    const rawId = (section.heading || "").trim().toLowerCase().replace(/[^\p{L}\p{N}\s-]+/gu, "").replace(/\s+/gu, "-");
+
+    return {
+      id: rawId ? `section-${rawId}` : `section-${index + 1}`,
+      title: section.heading || "document",
+      level: section.level || 1,
+      startLine: section.startLine,
+      endLine: section.endLine,
+      content: section.content
+    };
+  });
+}

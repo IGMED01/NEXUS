@@ -266,3 +266,10 @@ export function parseStructure(text: string, _sourceHint?: string): DocumentStru
 
   return { sections, tables, codeBlocks, lists, metadata };
 }
+
+/**
+ * Backward-compatible alias used by legacy modules/tests.
+ */
+export function parseDocumentStructure(text: string, _sourceHint?: string): DocumentStructure {
+  return parseStructure(text, _sourceHint);
+}

@@ -219,3 +219,41 @@ export function createBM25Index() {
     size
   };
 }
+
+/**
+ * Legacy compatibility factory used by older tests/imports.
+ * Accepts initial documents and exposes search(query, { limit }).
+ *
+ * @param {Array<{ id: string, content: string }>} [documents]
+ */
+export function createBm25Index(documents = []) {
+  const index = createBM25Index();
+
+  if (Array.isArray(documents) && documents.length > 0) {
+    index.addDocuments(
+      documents.map((entry) => ({
+        id: entry.id,
+        text: entry.content
+      }))
+    );
+  }
+
+  return {
+    size: index.size(),
+    /**
+     * @param {string} query
+     * @param {{ limit?: number }} [options]
+     */
+    search(query, options = {}) {
+      const limit =
+        typeof options.limit === "number" && Number.isFinite(options.limit)
+          ? Math.max(1, Math.trunc(options.limit))
+          : undefined;
+
+      return index.search(query, limit).map((entry) => ({
+        id: entry.id,
+        score: Number(entry.score.toFixed(6))
+      }));
+    }
+  };
+}

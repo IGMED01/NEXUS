@@ -235,11 +235,12 @@ async function writeChunks(filePath, chunks) {
 
 /**
  * Creates a chunk repository for persisting and searching chunks.
- * @param {{ baseDir?: string }} [options]
+ * @param {{ baseDir?: string, filePath?: string }} [options]
  * @returns {ChunkRepositoryType}
  */
 export function createChunkRepository(options) {
   const baseDir = path.resolve(options?.baseDir ?? ".lcs/chunks");
+  const filePath = path.resolve(options?.filePath ?? path.join(baseDir, "_default", "chunks.jsonl"));
 
   /**
    * @param {string} projectId
@@ -427,7 +428,74 @@ export function createChunkRepository(options) {
     }
   }
 
+  /**
+   * Legacy API: upsert a single chunk into repository.filePath.
+   * @param {{ id: string, source?: string, kind?: string, content: string, metadata?: Record<string, unknown> }} chunk
+   */
+  async function upsertChunk(chunk) {
+    if (!chunk?.id || !chunk?.content) {
+      throw new Error("chunk id and content are required");
+    }
+
+    const current = await readChunks(filePath);
+    const index = current.findIndex((entry) => entry.id === chunk.id);
+    const normalized = {
+      id: chunk.id,
+      source: chunk.source ?? chunk.id,
+      kind: /** @type {ChunkKind} */ (chunk.kind ?? "doc"),
+      content: chunk.content,
+      metadata: chunk.metadata ?? {}
+    };
+
+    if (index >= 0) {
+      current[index] = normalized;
+    } else {
+      current.push(normalized);
+    }
+
+    await writeChunks(filePath, current);
+    return normalized;
+  }
+
+  /**
+   * Legacy API: get chunks by id from repository.filePath.
+   * @param {string[]} ids
+   */
+  async function getChunksById(ids) {
+    const current = await readChunks(filePath);
+    const wanted = new Set(ids);
+    return current.filter((entry) => wanted.has(entry.id));
+  }
+
+  /**
+   * Legacy API: list chunks from repository.filePath with filters.
+   * @param {{ kind?: string, sourceIncludes?: string, limit?: number }} [filters]
+   */
+  async function listChunks(filters = {}) {
+    const current = await readChunks(filePath);
+    let result = [...current];
+
+    if (filters.kind) {
+      result = result.filter((entry) => entry.kind === filters.kind);
+    }
+
+    if (filters.sourceIncludes) {
+      const needle = filters.sourceIncludes.toLowerCase();
+      result = result.filter((entry) => String(entry.source ?? "").toLowerCase().includes(needle));
+    }
+
+    if (typeof filters.limit === "number") {
+      result = result.slice(0, Math.max(0, filters.limit));
+    }
+
+    return result;
+  }
+
   return {
+    filePath,
+    upsertChunk,
+    getChunksById,
+    listChunks,
     save,
     load,
     remove,

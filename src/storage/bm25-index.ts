@@ -191,3 +191,10 @@ export function createBM25Index(): BM25IndexType {
     size
   };
 }
+
+/**
+ * Legacy compatibility alias used by older tests/imports.
+ */
+export function createBm25Index(): BM25IndexType {
+  return createBM25Index();
+}

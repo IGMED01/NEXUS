@@ -19,8 +19,10 @@ import { join, dirname } from "node:path";
  * @returns {OutputAuditor}
  */
 export function createOutputAuditor(options) {
-  const logDir = options?.logDir ?? join(process.cwd(), ".lcs", "audit");
-  const logFile = join(logDir, "output-guard.jsonl");
+  const logFile = options?.filePath
+    ? join(options.filePath)
+    : join(options?.logDir ?? join(process.cwd(), ".lcs", "audit"), "output-guard.jsonl");
+  const logDir = dirname(logFile);
 
   /** @type {AuditEntry[] | null} */
   let cache = null;
@@ -65,6 +67,7 @@ export function createOutputAuditor(options) {
   }
 
   return {
+    filePath: logFile,
     /**
      * @param {AuditEntry} entry
      * @returns {Promise<void>}
@@ -140,6 +143,59 @@ export function createOutputAuditor(options) {
         passedClean,
         byRule
       };
+    },
+
+    /**
+     * Legacy API alias: record(event)
+     * @param {{ action: "allow" | "redact" | "block", reasons?: string[], outputLength?: number, source?: string, metadata?: Record<string, unknown> }} event
+     */
+    async record(event) {
+      const action = event?.action ?? "allow";
+      const blocked = action === "block";
+      const modified = action === "redact";
+      const rules = Array.isArray(event?.reasons) ? event.reasons : [];
+
+      await this.log({
+        timestamp: new Date().toISOString(),
+        project: event?.source ?? "nexus",
+        blocked,
+        modified,
+        rules,
+        inputTokens: 0,
+        outputTokens: Number(event?.outputLength ?? 0),
+        durationMs: 0
+      });
+
+      return {
+        recordedAt: new Date().toISOString(),
+        action,
+        reasons: rules,
+        outputLength: Number(event?.outputLength ?? 0),
+        source: event?.source ?? "",
+        metadata: event?.metadata ?? {}
+      };
+    },
+
+    /**
+     * Legacy API alias: list(filters)
+     * @param {{ action?: string, limit?: number }} [filters]
+     */
+    async list(filters = {}) {
+      const blockedFilter =
+        filters.action === "block" ? true : filters.action === "allow" ? false : undefined;
+      const entries = await this.query({
+        ...(typeof blockedFilter === "boolean" ? { blocked: blockedFilter } : {}),
+        limit: filters.limit
+      });
+
+      return entries.map((entry) => ({
+        recordedAt: entry.timestamp,
+        action: entry.blocked ? "block" : entry.modified ? "redact" : "allow",
+        reasons: entry.rules,
+        outputLength: entry.outputTokens ?? 0,
+        source: entry.project,
+        metadata: {}
+      }));
     }
   };
 }

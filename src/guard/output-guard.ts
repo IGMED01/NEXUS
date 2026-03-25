@@ -391,3 +391,69 @@ registerOutputGuardRule("length-check", (input: OutputGuardInput, content: strin
 
   return { blocked: false, modified: false, content, modifications };
 });
+
+interface LegacyOutputGuardOptions {
+  blockOnSecretSignal?: boolean;
+  blockedTerms?: string[];
+  domainScope?: { allowedDomains?: string[] };
+}
+
+interface LegacyOutputGuardResult {
+  allowed: boolean;
+  action: "allow" | "block";
+  reasons: string[];
+  output: string;
+}
+
+/**
+ * Backward-compatible helper used by legacy tests/modules.
+ */
+export function enforceOutputGuard(output: string, options: LegacyOutputGuardOptions = {}): LegacyOutputGuardResult {
+  const text = String(output ?? "");
+  const reasons: string[] = [];
+
+  if (options.blockOnSecretSignal) {
+    const hasSecretSignal =
+      /sk-(?:live|test)-[A-Za-z0-9]/i.test(text) ||
+      /\b(?:api[_-]?key|authorization|bearer)\b/i.test(text);
+    if (hasSecretSignal) {
+      reasons.push("secret-signal-detected");
+    }
+  }
+
+  for (const term of Array.isArray(options.blockedTerms) ? options.blockedTerms : []) {
+    const candidate = String(term ?? "").trim();
+    if (!candidate) {
+      continue;
+    }
+    if (text.toLowerCase().includes(candidate.toLowerCase())) {
+      reasons.push(`blocked-term:${candidate}`);
+    }
+  }
+
+  const allowedDomains = Array.isArray(options.domainScope?.allowedDomains)
+    ? options.domainScope.allowedDomains.map((entry) => String(entry).trim().toLowerCase()).filter(Boolean)
+    : [];
+  if (allowedDomains.length > 0) {
+    const domainKeywords: Record<"security" | "observability", string[]> = {
+      security: ["security", "token", "auth", "authorization", "jwt", "secret"],
+      observability: ["observability", "metric", "trace", "dashboard", "alert", "logs"]
+    };
+    (["security", "observability"] as const).forEach((domain) => {
+      if (allowedDomains.includes(domain)) {
+        return;
+      }
+      if (domainKeywords[domain].some((keyword) => text.toLowerCase().includes(keyword))) {
+        reasons.push(`domain-scope-outside:${domain}`);
+      }
+    });
+  }
+
+  const blocked = reasons.length > 0;
+  return {
+    allowed: !blocked,
+    action: blocked ? "block" : "allow",
+    reasons,
+    output: blocked ? "" : text
+  };
+}

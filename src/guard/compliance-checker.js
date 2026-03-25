@@ -157,3 +157,39 @@ export function checkCompliance(input) {
     summary
   };
 }
+
+/**
+ * Backward-compatible helper used by legacy tests/modules.
+ *
+ * @param {string} output
+ * @param {{ blockedTerms?: string[] }} [options]
+ */
+export function checkOutputCompliance(output, options = {}) {
+  /** @type {string[]} */
+  const violations = [];
+  const text = String(output ?? "");
+  const lower = text.toLowerCase();
+
+  if (/\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b/.test(text)) {
+    violations.push("email-detected");
+  }
+
+  if (/(?:\+\d{1,3}[\s-]*)?(?:\(?\d{2,4}\)?[\s-]*)\d{3,4}[\s-]*\d{3,4}/.test(text)) {
+    violations.push("phone-detected");
+  }
+
+  for (const term of Array.isArray(options.blockedTerms) ? options.blockedTerms : []) {
+    const candidate = String(term ?? "").trim();
+    if (!candidate) {
+      continue;
+    }
+    if (lower.includes(candidate.toLowerCase())) {
+      violations.push(`blocked-term:${candidate}`);
+    }
+  }
+
+  return {
+    compliant: violations.length === 0,
+    violations
+  };
+}
