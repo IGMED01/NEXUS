@@ -91,6 +91,59 @@ async function tryExec(command, args) {
 }
 
 /**
+ * @param {{ ok: boolean }} npmAvailability
+ * @returns {Promise<{ known: boolean, enabled: boolean, detail: string }>}
+ */
+async function readNpmIgnoreScriptsPolicy(npmAvailability) {
+  if (!npmAvailability.ok) {
+    return {
+      known: false,
+      enabled: false,
+      detail: "Skipped because npm is not available."
+    };
+  }
+
+  const configResult =
+    process.platform === "win32"
+      ? await tryExec("cmd.exe", ["/c", "npm.cmd", "config", "get", "ignore-scripts"])
+      : await tryExec("npm", ["config", "get", "ignore-scripts"]);
+
+  if (!configResult.ok) {
+    return {
+      known: false,
+      enabled: false,
+      detail: `Unable to read npm ignore-scripts policy: ${configResult.stderr}`
+    };
+  }
+
+  const normalized = String(configResult.stdout || "")
+    .trim()
+    .toLowerCase();
+
+  if (normalized === "true") {
+    return {
+      known: true,
+      enabled: true,
+      detail: "npm ignore-scripts=true (install hooks disabled by default)."
+    };
+  }
+
+  if (normalized === "false") {
+    return {
+      known: true,
+      enabled: false,
+      detail: "npm ignore-scripts=false (install hooks may run)."
+    };
+  }
+
+  return {
+    known: false,
+    enabled: false,
+    detail: `Unable to parse npm ignore-scripts policy value: '${configResult.stdout}'.`
+  };
+}
+
+/**
  * @param {{
  *   cwd?: string,
  *   configInfo: { found: boolean, path: string, config: ReturnType<typeof defaultProjectConfig> },
@@ -125,6 +178,18 @@ export async function runProjectDoctor(input) {
     fix: npmResult.ok ? "" : "Install npm (bundled with Node.js) and ensure it is available in PATH."
   });
 
+  const ignoreScriptsPolicy = await readNpmIgnoreScriptsPolicy(npmResult);
+  checks.push({
+    id: "npm-install-scripts-policy",
+    label: "npm install scripts policy",
+    status: ignoreScriptsPolicy.known && ignoreScriptsPolicy.enabled ? "pass" : "warn",
+    detail: ignoreScriptsPolicy.detail,
+    fix:
+      ignoreScriptsPolicy.known && ignoreScriptsPolicy.enabled
+        ? ""
+        : "Use `npm ci --ignore-scripts` for installs, or set `npm config set ignore-scripts true` for this environment."
+  });
+
   const gitResult = await tryExec("git", ["--version"]);
   checks.push({
     id: "git",
@@ -151,7 +216,7 @@ export async function runProjectDoctor(input) {
     label: "Installed dependencies",
     status: nodeModulesExists ? "pass" : "warn",
     detail: nodeModulesExists ? nodeModulesPath : `Missing dependency directory: ${nodeModulesPath}`,
-    fix: nodeModulesExists ? "" : "Run `npm ci` (or `npm install`) in the project root."
+    fix: nodeModulesExists ? "" : "Run `npm ci --ignore-scripts` in the project root."
   });
 
   checks.push({

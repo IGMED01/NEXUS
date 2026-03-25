@@ -28,7 +28,7 @@ NEXUS es una plataforma CLI-first para **seleccionar contexto, enseñar desde ca
 ```bash
 git clone https://github.com/IGMED01/NEXUS.git
 cd NEXUS
-npm install
+npm ci --ignore-scripts
 npm run doctor:json
 ```
 

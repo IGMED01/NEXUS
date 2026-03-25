@@ -235,3 +235,10 @@ export function tagChunk(chunk: Chunk, context?: TaggingContext): ChunkTags {
     readingLevel
   };
 }
+
+/**
+ * Backward-compatible alias used by legacy JS modules.
+ */
+export function tagChunkMetadata(chunk: Chunk, context?: TaggingContext): ChunkTags {
+  return tagChunk(chunk, context);
+}

@@ -11,6 +11,80 @@ import { getPromptHistory, rollbackPrompt } from "./prompt-versioning.js";
 import { saveSnapshot, getScoreTrend } from "./context-snapshot.js";
 
 /**
+ * @param {number} value
+ */
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
+/**
+ * NEXUS:9 — build rollback candidate plan from version history + eval scores.
+ * @param {{ listVersions: (promptKey: string) => Promise<Array<{ id: string, version: number, createdAt: string }>> }} store
+ * @param {{
+ *   promptKey: string,
+ *   evalScoresByVersion?: Record<string, number>,
+ *   minScore?: number,
+ *   preferPrevious?: boolean
+ * }} input
+ */
+export async function buildRollbackPlan(store, input) {
+  const promptKey = String(input.promptKey ?? "").trim();
+
+  if (!promptKey) {
+    throw new Error("promptKey is required.");
+  }
+
+  const list = await store.listVersions(promptKey);
+  const current = list[0] ?? null;
+  const minScore =
+    typeof input.minScore === "number" && Number.isFinite(input.minScore)
+      ? clamp01(input.minScore)
+      : 0.75;
+  const preferPrevious = input.preferPrevious !== false;
+  const scores =
+    input.evalScoresByVersion && typeof input.evalScoresByVersion === "object"
+      ? input.evalScoresByVersion
+      : {};
+
+  const considered = list.map((entry) => ({
+    id: entry.id,
+    version: entry.version,
+    score:
+      typeof scores[entry.id] === "number" && Number.isFinite(scores[entry.id])
+        ? clamp01(scores[entry.id])
+        : 0
+  }));
+
+  const eligible = considered
+    .filter((entry) => entry.score >= minScore)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      return right.version - left.version;
+    });
+
+  let selected = null;
+
+  if (preferPrevious && current) {
+    selected = eligible.find((entry) => entry.version < current.version) ?? null;
+  }
+
+  if (!selected) {
+    selected = eligible[0] ?? null;
+  }
+
+  return {
+    promptKey,
+    status: selected ? "rollback-ready" : "no-candidate",
+    selected,
+    considered,
+    minScore,
+    preferPrevious
+  };
+}
+
+/**
  * @param {RollbackEngineOptions} options
  * @returns {Promise<RollbackCheck>}
  */

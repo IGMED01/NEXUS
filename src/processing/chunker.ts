@@ -354,3 +354,57 @@ export function smartChunk(text: string, options?: ChunkOptions): SmartChunk[] {
 
   return chunks;
 }
+
+export interface ChunkDocumentOptions {
+  source?: string;
+  maxCharsPerChunk?: number;
+  minCharsPerChunk?: number;
+}
+
+export interface ChunkDocumentItem {
+  id: string;
+  content: string;
+  metadata: {
+    source: string;
+    sectionTitle: string;
+    sectionLevel: number;
+    startLine: number;
+    endLine: number;
+    index: number;
+    strategy: string;
+  };
+}
+
+/**
+ * Backward-compatible adapter used by workflow/storage layers.
+ */
+export function chunkDocument(text: string, options: ChunkDocumentOptions = {}): ChunkDocumentItem[] {
+  const source = typeof options.source === "string" && options.source.trim() ? options.source : "inline";
+  const maxChunkChars =
+    typeof options.maxCharsPerChunk === "number" && Number.isFinite(options.maxCharsPerChunk)
+      ? Math.max(200, Math.trunc(options.maxCharsPerChunk))
+      : DEFAULT_MAX_CHARS;
+  const minChunkChars =
+    typeof options.minCharsPerChunk === "number" && Number.isFinite(options.minCharsPerChunk)
+      ? Math.max(50, Math.trunc(options.minCharsPerChunk))
+      : DEFAULT_MIN_CHARS;
+
+  const chunks = smartChunk(text, {
+    maxChunkChars,
+    minChunkChars
+  });
+
+  return chunks.map((chunk, index) => ({
+    id: chunk.id || `${source}:${index}`,
+    content: chunk.content,
+    metadata: {
+      source,
+      sectionTitle: chunk.section ?? "document",
+      sectionLevel: chunk.section ? 2 : 1,
+      startLine: Number.isFinite(chunk.startLine) ? chunk.startLine : 0,
+      endLine: Number.isFinite(chunk.endLine) ? chunk.endLine : 0,
+      index,
+      strategy: chunk.strategy ?? "semantic"
+    }
+  }));
+}

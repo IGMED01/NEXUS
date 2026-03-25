@@ -14,7 +14,7 @@ CLI platform for **context selection, teaching packets, and durable memory**.
 ```bash
 git clone https://github.com/IGMED01/NEXUS.git
 cd NEXUS
-npm install
+npm ci --ignore-scripts
 npm run doctor:json
 ```
 

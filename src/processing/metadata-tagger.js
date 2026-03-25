@@ -272,3 +272,14 @@ export function tagChunk(chunk, context) {
     readingLevel
   };
 }
+
+/**
+ * Backward-compatible alias used by legacy JS modules.
+ *
+ * @param {Chunk} chunk
+ * @param {TaggingContext} [context]
+ * @returns {ChunkTags}
+ */
+export function tagChunkMetadata(chunk, context) {
+  return tagChunk(chunk, context);
+}

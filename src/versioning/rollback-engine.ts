@@ -19,6 +19,96 @@ import { runEvalSuite } from "../eval/eval-runner.js";
 import { getPromptHistory, rollbackPrompt } from "./prompt-versioning.js";
 import { saveSnapshot, getScoreTrend } from "./context-snapshot.js";
 
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+interface RollbackVersionSummary {
+  id: string;
+  version: number;
+  createdAt: string;
+}
+
+interface RollbackStoreLike {
+  listVersions(promptKey: string): Promise<RollbackVersionSummary[]>;
+}
+
+interface BuildRollbackPlanInput {
+  promptKey: string;
+  evalScoresByVersion?: Record<string, number>;
+  minScore?: number;
+  preferPrevious?: boolean;
+}
+
+interface BuildRollbackPlanResult {
+  promptKey: string;
+  status: "rollback-ready" | "no-candidate";
+  selected: { id: string; version: number; score: number } | null;
+  considered: Array<{ id: string; version: number; score: number }>;
+  minScore: number;
+  preferPrevious: boolean;
+}
+
+export async function buildRollbackPlan(
+  store: RollbackStoreLike,
+  input: BuildRollbackPlanInput
+): Promise<BuildRollbackPlanResult> {
+  const promptKey = String(input.promptKey ?? "").trim();
+
+  if (!promptKey) {
+    throw new Error("promptKey is required.");
+  }
+
+  const list = await store.listVersions(promptKey);
+  const current = list[0] ?? null;
+  const minScore =
+    typeof input.minScore === "number" && Number.isFinite(input.minScore)
+      ? clamp01(input.minScore)
+      : 0.75;
+  const preferPrevious = input.preferPrevious !== false;
+  const scores =
+    input.evalScoresByVersion && typeof input.evalScoresByVersion === "object"
+      ? input.evalScoresByVersion
+      : {};
+
+  const considered = list.map((entry) => ({
+    id: entry.id,
+    version: entry.version,
+    score:
+      typeof scores[entry.id] === "number" && Number.isFinite(scores[entry.id])
+        ? clamp01(scores[entry.id]!)
+        : 0
+  }));
+
+  const eligible = considered
+    .filter((entry) => entry.score >= minScore)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      return right.version - left.version;
+    });
+
+  let selected: { id: string; version: number; score: number } | null = null;
+
+  if (preferPrevious && current) {
+    selected = eligible.find((entry) => entry.version < current.version) ?? null;
+  }
+
+  if (!selected) {
+    selected = eligible[0] ?? null;
+  }
+
+  return {
+    promptKey,
+    status: selected ? "rollback-ready" : "no-candidate",
+    selected,
+    considered,
+    minScore,
+    preferPrevious
+  };
+}
+
 export interface RollbackEngineOptions {
   dropThreshold?: number;  // Default 0.10 (10%)
   evalSuite: EvalSuite;

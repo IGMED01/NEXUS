@@ -26,7 +26,7 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Sync merged PR learnings to Notion
         env:
