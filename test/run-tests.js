@@ -59,7 +59,11 @@ import {
   createNotionSyncClient,
   resolveNotionConfig
 } from "../src/integrations/notion-sync.js";
-import { compressContent, selectContextWindow } from "../src/context/noise-canceler.js";
+import {
+  compressContent,
+  NEXUS_SCORING_PROFILES,
+  selectContextWindow
+} from "../src/context/noise-canceler.js";
 import {
   redactSensitiveContent,
   shouldIgnoreSensitiveFile
@@ -85,6 +89,12 @@ import {
   evaluateNorthStarGate,
   formatNorthStarGateReport
 } from "../src/ci/north-star-gate.js";
+import { buildNexusOpenApiSpec } from "../src/interface/nexus-openapi.js";
+import { createNexusApiClient } from "../src/sdk/nexus-api-client.js";
+import {
+  formatDomainEvalSuiteReport,
+  runDomainEvalSuite
+} from "../src/eval/domain-eval-suite.js";
 
 const tests = [];
 const execFile = promisify(execFileCallback);
@@ -5007,6 +5017,242 @@ run("NEXUS:10 API server exposes health sync pipeline and ask routes", async () 
     assert.equal(ask.status, 200);
     assert.equal(askPayload.status, "ok");
     assert.match(askPayload.parsed.change, /Updated auth flow/);
+  } finally {
+    if (started) {
+      await server.stop();
+    }
+
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+run("NEXUS:10 OpenAPI builder includes dashboard and versioning endpoints", async () => {
+  const spec = buildNexusOpenApiSpec({
+    title: "NEXUS API Test",
+    version: "9.9.9"
+  });
+
+  assert.equal(spec.openapi, "3.1.0");
+  assert.equal(spec.info.title, "NEXUS API Test");
+  assert.equal(spec.info.version, "9.9.9");
+  assert.equal(Boolean(spec.paths["/api/observability/dashboard"]), true);
+  assert.equal(Boolean(spec.paths["/api/versioning/prompts"]), true);
+  assert.equal(Boolean(spec.paths["/api/versioning/compare"]), true);
+});
+
+run("NEXUS:10 SDK client sends auth headers and query params", async () => {
+  /** @type {Array<{ url: string, init: RequestInit }>} */
+  const calls = [];
+  const client = createNexusApiClient({
+    baseUrl: "http://localhost:8787",
+    apiKey: "sdk-key",
+    fetchFn: async (url, init) => {
+      calls.push({
+        url: String(url),
+        init: init ?? {}
+      });
+
+      return new Response(
+        JSON.stringify({
+          status: "ok"
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      );
+    }
+  });
+
+  await client.observabilityDashboard({ topCommands: 9 });
+  await client.savePromptVersion({
+    promptKey: "ask/default",
+    content: "prompt v1"
+  });
+
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].url, /topCommands=9/);
+  assert.equal(
+    calls.every((entry) => new Headers(entry.init.headers).get("x-api-key") === "sdk-key"),
+    true
+  );
+  assert.equal(new Headers(calls[1].init.headers).get("content-type"), "application/json");
+});
+
+run("NEXUS:7 domain eval suite blocks failing domains", async () => {
+  const report = runDomainEvalSuite({
+    suite: "nexus-domain-test",
+    thresholds: {
+      consistency: 0.45,
+      relevance: 0.7,
+      safety: 0.9,
+      cost: 100
+    },
+    cases: [
+      {
+        domain: "security",
+        name: "guard pipeline",
+        responses: [
+          {
+            content: "Block secrets and redact sensitive output."
+          },
+          {
+            content: "Redact secret output and block leaked tokens."
+          }
+        ],
+        scores: {
+          relevance: 0.85,
+          safety: 0.97,
+          cost: 74
+        }
+      },
+      {
+        domain: "observability",
+        name: "blocked by relevance",
+        responses: [
+          {
+            content: "Observability dashboard tracks command runs and recall status."
+          },
+          {
+            content: "Dashboard metrics summarize runs and status."
+          }
+        ],
+        scores: {
+          relevance: 0.42,
+          safety: 0.93,
+          cost: 64
+        }
+      }
+    ]
+  });
+  const reportText = formatDomainEvalSuiteReport(report);
+
+  assert.equal(report.status, "blocked");
+  assert.equal(report.failedCases.length >= 1, true);
+  assert.match(reportText, /observability/i);
+  assert.match(reportText, /BLOCK/i);
+});
+
+run("NEXUS:3 scoring profiles expose tuned profile set", async () => {
+  assert.equal(NEXUS_SCORING_PROFILES.includes("baseline"), true);
+  assert.equal(NEXUS_SCORING_PROFILES.includes("vertical-tuned"), true);
+
+  const chunks = [
+    {
+      id: "code",
+      source: "src/auth/middleware.ts",
+      kind: "code",
+      content: "Validate JWT before route handlers and fail fast on expired sessions."
+    },
+    {
+      id: "doc",
+      source: "README.md",
+      kind: "doc",
+      content: "General documentation for onboarding."
+    }
+  ];
+  const baseline = selectContextWindow(chunks, {
+    focus: "auth middleware expired sessions",
+    changedFiles: ["src/auth/middleware.ts"],
+    scoringProfile: "baseline",
+    maxChunks: 1
+  });
+  const tuned = selectContextWindow(chunks, {
+    focus: "auth middleware expired sessions",
+    changedFiles: ["src/auth/middleware.ts"],
+    scoringProfile: "vertical-tuned",
+    maxChunks: 1
+  });
+
+  assert.equal(baseline.selected[0]?.id, "code");
+  assert.equal(tuned.selected[0]?.id, "code");
+});
+
+run("NEXUS:10 API server exposes demo, openapi, dashboard and versioning routes", async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "nexus-api-demo-"));
+  const apiKey = "nexus-demo-key";
+  const server = createNexusApiServer({
+    host: "127.0.0.1",
+    port: 0,
+    auth: {
+      requireAuth: true,
+      apiKeys: [apiKey]
+    },
+    llm: {
+      defaultProvider: "mock",
+      providers: [
+        {
+          provider: "mock",
+          async generate() {
+            return {
+              content: "Change:\\nok\\nReason:\\nok\\nConcepts:\\n- one\\nPractice:\\nnext"
+            };
+          }
+        }
+      ]
+    },
+    promptVersionFilePath: path.join(tempRoot, "prompt-versions.jsonl"),
+    observabilityFilePath: path.join(tempRoot, "observability.json")
+  });
+
+  let started = false;
+
+  try {
+    const start = await server.start();
+    started = true;
+    const baseUrl = `http://127.0.0.1:${start.port}`;
+    const openapiResponse = await fetch(`${baseUrl}/api/openapi.json`);
+    const demoResponse = await fetch(`${baseUrl}/api/demo`);
+    const saveVersion = await fetch(`${baseUrl}/api/versioning/prompts`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey
+      },
+      body: JSON.stringify({
+        promptKey: "ask/default",
+        content: "version one"
+      })
+    });
+    const listVersions = await fetch(`${baseUrl}/api/versioning/prompts?promptKey=ask/default`, {
+      headers: {
+        "x-api-key": apiKey
+      }
+    });
+    const savedPayload = await saveVersion.json();
+    const listedPayload = await listVersions.json();
+    const leftId = listedPayload.versions[0].id;
+    const compareVersions = await fetch(
+      `${baseUrl}/api/versioning/compare?leftId=${encodeURIComponent(leftId)}&rightId=${encodeURIComponent(leftId)}`,
+      {
+        headers: {
+          "x-api-key": apiKey
+        }
+      }
+    );
+    const dashboard = await fetch(`${baseUrl}/api/observability/dashboard?topCommands=4`, {
+      headers: {
+        "x-api-key": apiKey
+      }
+    });
+    const openapiPayload = await openapiResponse.json();
+    const comparePayload = await compareVersions.json();
+    const dashboardPayload = await dashboard.json();
+
+    assert.equal(openapiResponse.status, 200);
+    assert.equal(demoResponse.status, 200);
+    assert.match(await demoResponse.text(), /NEXUS Demo Console/);
+    assert.equal(saveVersion.status, 200);
+    assert.equal(savedPayload.version.promptKey, "ask/default");
+    assert.equal(listVersions.status, 200);
+    assert.equal(Array.isArray(listedPayload.versions), true);
+    assert.equal(compareVersions.status, 200);
+    assert.equal(comparePayload.diff.changedLines, 0);
+    assert.equal(dashboard.status, 200);
+    assert.equal(dashboardPayload.status, "ok");
+    assert.equal(Boolean(openapiPayload.paths["/api/versioning/prompts"]), true);
   } finally {
     if (started) {
       await server.stop();

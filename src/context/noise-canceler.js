@@ -72,6 +72,43 @@ const KIND_PRIOR = /** @type {Record<ChunkKind, number>} */ ({
 });
 
 const DEFAULT_RECALL_RESERVE_RATIO = 0.15;
+const DEFAULT_SCORING_PROFILE = "vertical-tuned";
+
+const BASELINE_SCORING_WEIGHTS = {
+  overlap: 0.3,
+  kindPrior: 0.15,
+  certainty: 0.12,
+  recency: 0.08,
+  teachingValue: 0.1,
+  priority: 0.06,
+  density: 0.03,
+  sourceAffinity: 0.1,
+  implementationFit: 0.12,
+  retrievalBoost: 0.08,
+  changeAnchor: 1,
+  relatedTestBoost: 0.04,
+  recallOriginBoost: 0.09,
+  customBoost: 0.1,
+  redundancyPenalty: 0.22,
+  sourcePenalty: 0.22,
+  narrativePenalty: 0.18,
+  genericRunnerPenalty: 0.32
+};
+
+const SCORING_PROFILES = {
+  baseline: BASELINE_SCORING_WEIGHTS,
+  "vertical-tuned": {
+    ...BASELINE_SCORING_WEIGHTS,
+    overlap: 0.28,
+    sourceAffinity: 0.12,
+    implementationFit: 0.14,
+    changeAnchor: 1.05,
+    relatedTestBoost: 0.05,
+    recallOriginBoost: 0.07,
+    sourcePenalty: 0.2,
+    genericRunnerPenalty: 0.34
+  }
+};
 
 /**
  * @param {number} value
@@ -88,6 +125,47 @@ function clamp(value, min = 0, max = 1) {
 function asNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
+
+/**
+ * @param {SelectionOptions} [options]
+ */
+function resolveScoringWeights(options = {}) {
+  const requestedProfile =
+    typeof options.scoringProfile === "string" && options.scoringProfile.trim()
+      ? options.scoringProfile.trim()
+      : typeof process.env.LCS_SCORING_PROFILE === "string" &&
+          process.env.LCS_SCORING_PROFILE.trim()
+        ? process.env.LCS_SCORING_PROFILE.trim()
+        : DEFAULT_SCORING_PROFILE;
+  const profile = requestedProfile in SCORING_PROFILES ? requestedProfile : DEFAULT_SCORING_PROFILE;
+  const profileWeights = SCORING_PROFILES[/** @type {keyof typeof SCORING_PROFILES} */ (profile)];
+  const overrides =
+    options.scoringWeights && typeof options.scoringWeights === "object"
+      ? /** @type {Record<string, unknown>} */ (options.scoringWeights)
+      : {};
+
+  /** @type {Record<string, number>} */
+  const merged = {};
+
+  for (const [key, value] of Object.entries(profileWeights)) {
+    if (key in overrides) {
+      const numeric = overrides[key];
+      merged[key] = typeof numeric === "number" && Number.isFinite(numeric) ? numeric : value;
+      continue;
+    }
+
+    merged[key] = value;
+  }
+
+  return {
+    profile,
+    weights: merged
+  };
+}
+
+export const NEXUS_SCORING_PROFILES = Object.freeze(
+  Object.keys(SCORING_PROFILES).sort((left, right) => left.localeCompare(right))
+);
 
 /**
  * @param {string} [text]
@@ -543,8 +621,11 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
   const sourceAffinity = sourceAffinityScore(chunk.source, changedFiles);
   const changeAnchor = changeAnchorScore(chunk.source, changedFiles);
   const relatedTestBoost = testRelationshipScore(chunk.source, changedFiles);
-  const changeAnchorWeight =
+  const scoringWeights =
+    options._cachedScoringWeights ?? resolveScoringWeights(options).weights;
+  const changeAnchorWeightBase =
     chunk.kind === "code" ? 0.16 : chunk.kind === "test" ? 0.09 : 0.12;
+  const changeAnchorWeight = changeAnchorWeightBase * (scoringWeights.changeAnchor ?? 1);
   const sourcePenalty = genericSourcePenalty(chunk.source, changedFiles);
   const genericRunnerPenalty = genericTestRunnerPenalty(chunk, changedFiles);
   const narrativePenalty = narrativeMemoryPenalty(chunk);
@@ -575,26 +656,26 @@ export function scoreChunk(chunk, focus, selectedChunks = [], options = {}) {
     : 0;
 
   const positiveScore =
-    overlap * 0.3 +
-    kindPrior * 0.15 +
-    certainty * 0.12 +
-    recency * 0.08 +
-    teachingValue * 0.1 +
-    priority * 0.06 +
-    density * 0.03 +
-    sourceAffinity * 0.1 +
-    implementationFit * 0.12 +
-    retrievalBoost * 0.08 +
+    overlap * (scoringWeights.overlap ?? 0.3) +
+    kindPrior * (scoringWeights.kindPrior ?? 0.15) +
+    certainty * (scoringWeights.certainty ?? 0.12) +
+    recency * (scoringWeights.recency ?? 0.08) +
+    teachingValue * (scoringWeights.teachingValue ?? 0.1) +
+    priority * (scoringWeights.priority ?? 0.06) +
+    density * (scoringWeights.density ?? 0.03) +
+    sourceAffinity * (scoringWeights.sourceAffinity ?? 0.1) +
+    implementationFit * (scoringWeights.implementationFit ?? 0.12) +
+    retrievalBoost * (scoringWeights.retrievalBoost ?? 0.08) +
     changeAnchor * changeAnchorWeight +
-    relatedTestBoost * 0.04 +
-    recallOriginBoost * 0.09 +
-    customBoost * 0.1;
+    relatedTestBoost * (scoringWeights.relatedTestBoost ?? 0.04) +
+    recallOriginBoost * (scoringWeights.recallOriginBoost ?? 0.09) +
+    customBoost * (scoringWeights.customBoost ?? 0.1);
 
   const penalty =
-    redundancy * 0.22 +
-    sourcePenalty * 0.22 +
-    narrativePenalty * 0.18 +
-    genericRunnerPenalty * 0.32;
+    redundancy * (scoringWeights.redundancyPenalty ?? 0.22) +
+    sourcePenalty * (scoringWeights.sourcePenalty ?? 0.22) +
+    narrativePenalty * (scoringWeights.narrativePenalty ?? 0.18) +
+    genericRunnerPenalty * (scoringWeights.genericRunnerPenalty ?? 0.32);
   const total = clamp(positiveScore - penalty);
 
   return {
@@ -653,6 +734,7 @@ export function selectContextWindow(chunks, options = {}) {
     };
   });
   const focusTokens = tokenize(focus);
+  const scoringContext = resolveScoringWeights(options);
 
   /** @type {SelectedChunk[]} */
   const selected = [];
@@ -663,7 +745,12 @@ export function selectContextWindow(chunks, options = {}) {
   const ranked = prepared
     .map((chunk) => ({
       chunk,
-      score: scoreChunk(chunk, focus, [], { changedFiles, _cachedFocusTokens: focusTokens, _cachedChunkTokens: chunk.tokens }).total
+      score: scoreChunk(chunk, focus, [], {
+        changedFiles,
+        _cachedFocusTokens: focusTokens,
+        _cachedChunkTokens: chunk.tokens,
+        _cachedScoringWeights: scoringContext.weights
+      }).total
     }))
     .sort((left, right) => right.score - left.score);
   const preparedById = new Map(prepared.map((chunk) => [chunk.id, chunk]));
@@ -705,7 +792,12 @@ export function selectContextWindow(chunks, options = {}) {
       return;
     }
 
-    const rescored = scoreChunk(entry.chunk, focus, selected, { changedFiles, _cachedFocusTokens: focusTokens, _cachedChunkTokens: entry.chunk.tokens });
+    const rescored = scoreChunk(entry.chunk, focus, selected, {
+      changedFiles,
+      _cachedFocusTokens: focusTokens,
+      _cachedChunkTokens: entry.chunk.tokens,
+      _cachedScoringWeights: scoringContext.weights
+    });
     const chunk = {
       ...entry.chunk,
       score: rescored.total,
@@ -830,7 +922,12 @@ export function selectContextWindow(chunks, options = {}) {
         continue;
       }
 
-      const rescored = scoreChunk(preparedCandidate, focus, selectedWithoutRecall, { changedFiles, _cachedFocusTokens: focusTokens, _cachedChunkTokens: preparedCandidate.tokens });
+      const rescored = scoreChunk(preparedCandidate, focus, selectedWithoutRecall, {
+        changedFiles,
+        _cachedFocusTokens: focusTokens,
+        _cachedChunkTokens: preparedCandidate.tokens,
+        _cachedScoringWeights: scoringContext.weights
+      });
       const candidate = {
         ...preparedCandidate,
         score: rescored.total,

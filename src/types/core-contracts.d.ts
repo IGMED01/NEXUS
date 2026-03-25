@@ -68,6 +68,27 @@ export interface SelectionSummary {
   suppressionReasons: Record<string, number>;
 }
 
+export interface ScoringWeights {
+  overlap?: number;
+  kindPrior?: number;
+  certainty?: number;
+  recency?: number;
+  teachingValue?: number;
+  priority?: number;
+  density?: number;
+  sourceAffinity?: number;
+  implementationFit?: number;
+  retrievalBoost?: number;
+  changeAnchor?: number;
+  relatedTestBoost?: number;
+  recallOriginBoost?: number;
+  customBoost?: number;
+  redundancyPenalty?: number;
+  sourcePenalty?: number;
+  narrativePenalty?: number;
+  genericRunnerPenalty?: number;
+}
+
 export interface SelectionOptions {
   focus?: string;
   tokenBudget?: number;
@@ -76,6 +97,8 @@ export interface SelectionOptions {
   sentenceBudget?: number;
   changedFiles?: string[];
   recallReserveRatio?: number;
+  scoringProfile?: string;
+  scoringWeights?: ScoringWeights;
   customScorers?: Array<(input: {
     chunk: Chunk;
     focus: string;
@@ -84,6 +107,7 @@ export interface SelectionOptions {
   }) => number>;
   _cachedFocusTokens?: string[];
   _cachedChunkTokens?: string[];
+  _cachedScoringWeights?: ScoringWeights;
 }
 
 export interface ContextSelectionResult {

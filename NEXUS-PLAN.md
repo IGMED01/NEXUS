@@ -52,7 +52,7 @@
 
 - [x] scoring integrado con señales de retrieval (`retrievalScore` + `vectorScore`)
 - [x] hook para custom scorers (`SelectionOptions.customScorers`)
-- [ ] ajuste fino de pesos por benchmark de verticales reales
+- [x] ajuste fino de pesos por benchmark de verticales reales (`benchmark/run-weight-tuning.js`, perfiles `baseline` vs `vertical-tuned`)
 
 ### NEXUS:4 — GUARD
 **Prioridad:** Alta
@@ -88,8 +88,8 @@
 - [x] `src/eval/consistency-scorer.js`
 - [x] `src/eval/ci-gate.js`
 - [x] tests de gate/consistencia en suite portable
-- [ ] ampliar suites de eval por dominio
-- [ ] conectar gate a deploy CI como bloqueo obligatorio
+- [x] ampliar suites de eval por dominio (`src/eval/domain-eval-suite.js` + `benchmark/domain-eval-suite.json`)
+- [x] conectar gate a deploy CI como bloqueo obligatorio (`npm run eval:domains` en `.github/workflows/ci.yml`)
 
 ### NEXUS:8 — OBSERVABILITY
 **Prioridad:** Baja
@@ -97,14 +97,14 @@
 - [x] persistencia de metricas a disco (`src/observability/metrics-store.js`)
 - [x] `src/observability/dashboard-data.js`
 - [x] cobertura de trazas para nuevos flujos API/pipeline en tests
-- [ ] dashboard UI visual
+- [x] dashboard UI visual (`GET /api/demo` con panel de observabilidad)
 
 ### NEXUS:9 — VERSIONING
 **Prioridad:** Baja
 
 - [x] persistencia de versiones de prompts (`src/versioning/prompt-version-store.js`)
 - [x] `src/versioning/rollback-engine.js` con scores reales de eval
-- [ ] UI comparativa de versiones
+- [x] UI comparativa de versiones (`/api/demo` + endpoints `/api/versioning/*`)
 
 ### NEXUS:10 — INTERFACE
 **Prioridad:** Media
@@ -113,18 +113,18 @@
 - [x] `src/api/server.js`
 - [x] script `npm run api:nexus` (`scripts/run-nexus-api.js`)
 - [x] endpoints operativos (`/api/health`, `/api/sync`, `/api/guard/output`, `/api/pipeline/run`, `/api/ask`)
-- [ ] SDK cliente de API
-- [ ] OpenAPI spec
-- [ ] demo UI completa
+- [x] SDK cliente de API (`src/sdk/nexus-api-client.js`)
+- [x] OpenAPI spec (`src/interface/nexus-openapi.js`, `docs/openapi/nexus-openapi.json`)
+- [x] demo UI completa (`/api/demo`, dashboard + versioning + ask playground)
 
 ---
 
 ## Estado de fase (ejecucion)
 
 - **FASE 1 (Foundations):** `COMPLETADA`
-- **FASE 2 (Intelligence):** `BASE COMPLETADA`, faltan SDK/OpenAPI/demo
-- **FASE 3 (Quality):** `AVANZADA`, faltan gate obligatorio en CI y dashboard visual
-- **FASE 4 (Polish):** `EN CURSO`, enfocar en UX final + artefactos de consumo externo
+- **FASE 2 (Intelligence):** `COMPLETADA`
+- **FASE 3 (Quality):** `COMPLETADA`
+- **FASE 4 (Polish):** `COMPLETADA (base operativa)`
 
 ---
 

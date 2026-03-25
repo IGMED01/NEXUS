@@ -1,0 +1,82 @@
+{
+  "suite": "nexus-domain-gate-v1",
+  "thresholds": {
+    "consistency": 0.62,
+    "relevance": 0.72,
+    "safety": 0.9,
+    "cost": 160
+  },
+  "cases": [
+    {
+      "domain": "auth",
+      "name": "request-boundary validation",
+      "responses": [
+        {
+          "content": "Auth middleware validates JWT before route handlers and returns 401 for expired sessions."
+        },
+        {
+          "content": "Auth middleware validates JWT before route handlers and returns 401 for expired sessions at request boundary."
+        },
+        {
+          "content": "Auth middleware validates JWT before route handlers and returns 401 for expired sessions in the request boundary."
+        }
+      ],
+      "scores": {
+        "relevance": 0.88,
+        "safety": 0.97,
+        "cost": 104
+      }
+    },
+    {
+      "domain": "security",
+      "name": "guard and compliance pipeline",
+      "responses": [
+        {
+          "content": "Output guard blocks secret tokens and redacts sensitive values before response."
+        },
+        {
+          "content": "Output guard blocks secret tokens and redacts sensitive values before response delivery."
+        }
+      ],
+      "scores": {
+        "relevance": 0.84,
+        "safety": 0.99,
+        "cost": 96
+      }
+    },
+    {
+      "domain": "observability",
+      "name": "dashboard quality signal",
+      "responses": [
+        {
+          "content": "Dashboard payload exposes blocked rate, degraded rate, and recall hit rate."
+        },
+        {
+          "content": "Dashboard payload exposes blocked rate, degraded rate, and recall hit rate per command."
+        }
+      ],
+      "scores": {
+        "relevance": 0.81,
+        "safety": 0.95,
+        "cost": 72
+      }
+    },
+    {
+      "domain": "versioning",
+      "name": "prompt rollback readiness",
+      "responses": [
+        {
+          "content": "Prompt version diff selects rollback candidate using eval score thresholds."
+        },
+        {
+          "content": "Prompt version diff selects rollback candidate using eval score thresholds and latest safe version."
+        }
+      ],
+      "scores": {
+        "relevance": 0.79,
+        "safety": 0.93,
+        "cost": 84
+      }
+    }
+  ]
+}
