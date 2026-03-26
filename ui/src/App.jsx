@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { AreaChart, ProgressBar } from '@tremor/react'
 import ThemePanel, { loadSavedTheme } from './ThemePanel.jsx'
 import IngestPanel from './IngestPanel.jsx'
+import WikiPanel from './WikiPanel.jsx'
 
 async function apiFetch(method, path, body) {
   try {
@@ -20,21 +21,21 @@ const scoreColor  = s => s >= 0.75 ? 'emerald' : s >= 0.45 ? 'amber' : 'rose'
 const scoreBorder = s => s >= 0.75 ? '#10b981' : s >= 0.45 ? '#f59e0b' : '#ef4444'
 const scoreFg     = s => s >= 0.75 ? '#10b981' : s >= 0.45 ? '#f59e0b' : '#ef4444'
 
-function Topbar({ online, endpoints, onTheme, onIngest, ingestBadge }) {
+function Topbar({ online, endpoints, onTheme, onIngest, onWiki, ingestBadge }) {
   return (
     <header style={{
       position:'sticky', top:0, zIndex:50,
       display:'flex', alignItems:'center', justifyContent:'space-between',
       padding:'0 16px', height:'44px',
-      background:'rgba(7,7,14,0.92)', backdropFilter:'blur(14px)',
+      background:'var(--bg)', backdropFilter:'blur(14px)', opacity:1,
       borderBottom:'1px solid var(--border)', flexShrink:0,
     }}>
       <div style={{ position:'absolute', top:0, left:0, right:0, height:'1px',
         background:'linear-gradient(90deg,transparent,var(--accent) 40%,var(--accent-2) 60%,transparent)', opacity:0.5 }} />
       <div style={{ display:'flex', alignItems:'center', gap:'10px', minWidth:0 }}>
         <div style={{ width:'26px', height:'26px', flexShrink:0, display:'flex', alignItems:'center',
-          justifyContent:'center', background:'linear-gradient(135deg,#7c3aed,#a855f7)',
-          fontSize:'10px', fontWeight:900, color:'#fff' }}>Nx</div>
+          justifyContent:'center', background:'linear-gradient(135deg,var(--accent),var(--accent-2))',
+          fontSize:'10px', fontWeight:900, color:'var(--accent-contrast, #fff)' }}>Nx</div>
         <span style={{ fontSize:'13px', fontWeight:700, color:'var(--text-1)', letterSpacing:'-0.3px', flexShrink:0 }}>NEXUS</span>
         <div style={{ width:'1px', height:'14px', background:'var(--border-2)', flexShrink:0 }} />
         <span className="hide-sm" style={{ fontSize:'11px', color:'var(--text-3)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
@@ -66,11 +67,21 @@ function Topbar({ online, endpoints, onTheme, onIngest, ingestBadge }) {
           <span style={{ fontSize:'10px', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.6px' }}>Ingest</span>
           {ingestBadge > 0 && (
             <span className="count-up" style={{ position:'absolute', top:'-4px', right:'-4px', minWidth:'14px', height:'14px',
-              background:'var(--accent)', fontSize:'8px', fontWeight:700, color:'#fff',
+              background:'var(--accent)', fontSize:'8px', fontWeight:700, color:'var(--accent-contrast, #fff)',
               display:'flex', alignItems:'center', justifyContent:'center', padding:'0 3px' }}>
               {ingestBadge}
             </span>
           )}
+        </button>
+        <button onClick={onWiki} title="User Guide & Wiki" style={{
+          background:'none', border:'1px solid var(--border)', padding:'4px 10px',
+          cursor:'pointer', fontSize:'12px', color:'var(--text-3)', transition:'all 0.15s',
+          display:'flex', alignItems:'center', gap:'5px', fontFamily:'inherit',
+        }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor='var(--accent)'; e.currentTarget.style.color='var(--accent)' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.color='var(--text-3)' }}>
+          <span>📖</span>
+          <span style={{ fontSize:'10px', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.6px' }}>Wiki</span>
         </button>
         <button onClick={onTheme} title="Theme Studio" style={{
           background:'none', border:'1px solid var(--border)', padding:'4px 10px',
@@ -507,6 +518,7 @@ export default function App() {
   const [chunks, setChunks] = useState([])
   const [themeOpen, setThemeOpen] = useState(false)
   const [ingestOpen, setIngestOpen] = useState(false)
+  const [wikiOpen, setWikiOpen] = useState(false)
   const [apiError, setApiError] = useState(false)
   const [ingestBadge, setIngestBadge] = useState(0)  // count of ingested docs
 
@@ -533,7 +545,7 @@ export default function App() {
 
   return (
     <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column' }}>
-      <Topbar online={online} endpoints={endpoints} onTheme={() => setThemeOpen(true)} onIngest={() => setIngestOpen(true)} ingestBadge={ingestBadge} />
+      <Topbar online={online} endpoints={endpoints} onTheme={() => setThemeOpen(true)} onIngest={() => setIngestOpen(true)} onWiki={() => setWikiOpen(true)} ingestBadge={ingestBadge} />
       {apiError && <OfflineBanner onDismiss={() => setApiError(false)} />}
       <main style={{ flex:1, padding:'10px', overflow:'auto' }}>
         <div style={{ display:'grid', gridTemplateAreas:'"query query context" "query query context" "guard pulse context"', gridTemplateColumns:'1fr 1fr 290px', gridTemplateRows:'1fr 1fr auto', gap:'6px', height:'calc(100vh - 44px - 20px)', maxWidth:'1380px', margin:'0 auto' }}>
@@ -544,6 +556,7 @@ export default function App() {
         </div>
       </main>
       {ingestOpen && <IngestPanel onClose={() => setIngestOpen(false)} onIngested={({ title, chunks: c, tokens }) => { setIngestBadge(b => b+1) }} />}
+      {wikiOpen && <WikiPanel onClose={() => setWikiOpen(false)} />}
       {themeOpen && <ThemePanel onClose={() => setThemeOpen(false)} />}
       <style>{`
         input::placeholder { color: var(--text-3) !important; }
