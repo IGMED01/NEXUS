@@ -7,10 +7,15 @@ The API now includes:
 - `GET /api/health`
 - `GET /api/openapi.json`
 - `GET /api/demo` (visual dashboard + playground)
+- `GET /api/routes`
+- `GET /api/metrics`
 - `GET /api/guard/policies`
 - `GET /api/sync/status`
 - `GET /api/sync/drift`
 - `POST /api/sync`
+- `POST /api/remember`
+- `POST /api/recall`
+- `POST /api/chat`
 - `POST /api/guard/output`
 - `POST /api/pipeline/run`
 - `POST /api/ask`
@@ -122,6 +127,12 @@ curl http://127.0.0.1:8787/api/guard/policies
 ## Fallback and drift hardening (operational)
 
 - `POST /api/ask` now accepts optional `attemptTimeoutMs` to cap each provider attempt before moving to fallback providers.
+- `POST /api/ask` and `POST /api/chat` now include `impact` in response:
+  - `withoutNexus` (raw chunks/tokens),
+  - `withNexus` (selected chunks/tokens),
+  - `suppressed`,
+  - `savings.percent`.
+- `POST /api/ask` now degrades gracefully when provider is unavailable (status `degraded`, offline fallback content).
 - `POST /api/ask` response now includes `fallback.summary` with:
   - `attemptsCount`
   - `failedAttempts`
@@ -136,6 +147,14 @@ curl http://127.0.0.1:8787/api/guard/policies
   - `baselineWindow`
 
 The drift report includes `thresholds`, per-run drift level (`stable|warning|critical`), and spike detection metadata.
+
+## End-to-end smoke (FASE 4)
+
+```bash
+npm run e2e:nexus
+```
+
+Covers: `remember -> recall -> chat -> ask -> guard` with impact metrics assertion.
 
 ## Error contract (NEXUS:10 hardening)
 

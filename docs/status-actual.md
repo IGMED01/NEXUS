@@ -101,5 +101,6 @@ Ver `docs/repo-split-5-repos.md`.
 
 - `main` es la base canonica
 - el repo sigue siendo el centro del ecosistema
+- SYNC operativo canonico: `src/sync` dentro de NEXUS (`docs/sync-ownership.md`)
 - la arquitectura actual es modular, pero no fragmentada
 - el estado real no es “muchos productos”; es “un sistema con dominios claros”

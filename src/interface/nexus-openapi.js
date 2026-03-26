@@ -101,7 +101,159 @@ export function buildNexusOpenApiSpec(options = {}) {
             model: { type: "string" },
             tokenBudget: { type: "integer" },
             maxChunks: { type: "integer" },
-            guardPolicyProfile: { type: "string" }
+            guardPolicyProfile: { type: "string" },
+            chunks: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: true
+              }
+            }
+          }
+        },
+        ChatRequest: {
+          type: "object",
+          required: ["query"],
+          additionalProperties: true,
+          properties: {
+            query: { type: "string" },
+            question: { type: "string" },
+            task: { type: "string" },
+            objective: { type: "string" },
+            language: {
+              type: "string",
+              enum: ["es", "en"]
+            },
+            withContext: { type: "boolean" },
+            provider: { type: "string" },
+            fallbackProviders: {
+              type: "array",
+              items: { type: "string" }
+            },
+            attemptTimeoutMs: { type: "integer", minimum: 0 },
+            model: { type: "string" },
+            tokenBudget: { type: "integer" },
+            maxChunks: { type: "integer" },
+            guardPolicyProfile: { type: "string" },
+            chunks: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: true
+              }
+            }
+          }
+        },
+        ContextUsage: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            chunks: { type: "integer" },
+            tokens: { type: "integer" }
+          }
+        },
+        ContextImpact: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            withoutNexus: { $ref: "#/components/schemas/ContextUsage" },
+            withNexus: { $ref: "#/components/schemas/ContextUsage" },
+            suppressed: { $ref: "#/components/schemas/ContextUsage" },
+            savings: {
+              type: "object",
+              additionalProperties: true,
+              properties: {
+                chunks: { type: "integer" },
+                tokens: { type: "integer" },
+                percent: { type: "number" }
+              }
+            }
+          }
+        },
+        AskResponse: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            status: { type: "string" },
+            degraded: { type: "boolean" },
+            provider: { type: "string" },
+            context: {
+              type: "object",
+              additionalProperties: true
+            },
+            impact: {
+              $ref: "#/components/schemas/ContextImpact"
+            }
+          }
+        },
+        ChatResponse: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            status: { type: "string" },
+            response: { type: "string" },
+            degraded: { type: "boolean" },
+            provider: { type: "string" },
+            context: {
+              type: "object",
+              additionalProperties: true
+            },
+            impact: {
+              $ref: "#/components/schemas/ContextImpact"
+            }
+          }
+        },
+        RememberRequest: {
+          type: "object",
+          required: ["content"],
+          additionalProperties: true,
+          properties: {
+            title: { type: "string" },
+            source: { type: "string" },
+            content: { type: "string" },
+            text: { type: "string" },
+            type: { type: "string" },
+            kind: { type: "string" }
+          }
+        },
+        RememberResponse: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            status: { type: "string" },
+            id: { type: "string" },
+            stored: { type: "integer" },
+            chunks: { type: "integer" },
+            tokens: { type: "integer" }
+          }
+        },
+        RecallRequest: {
+          type: "object",
+          required: ["query"],
+          additionalProperties: true,
+          properties: {
+            query: { type: "string" },
+            limit: { type: "integer", minimum: 1 }
+          }
+        },
+        RecallResponse: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            status: { type: "string" },
+            query: { type: "string" },
+            chunks: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: true
+              }
+            },
+            total: { type: "integer" },
+            stats: {
+              type: "object",
+              additionalProperties: true
+            }
           }
         },
         GuardRequest: {
@@ -177,6 +329,124 @@ export function buildNexusOpenApiSpec(options = {}) {
             "200": {
               description: "HTML dashboard + API playground"
             }
+          }
+        }
+      },
+      "/api/routes": {
+        get: {
+          summary: "List API routes exposed by server",
+          security: [],
+          responses: {
+            "200": { description: "Route list" }
+          }
+        }
+      },
+      "/api/metrics": {
+        get: {
+          summary: "Get observability metrics report",
+          security: [],
+          responses: {
+            "200": { description: "Metrics payload" }
+          }
+        }
+      },
+      "/api/remember": {
+        post: {
+          summary: "Persist knowledge chunk/document into NEXUS memory",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  $ref: "#/components/schemas/RememberRequest"
+                }
+              }
+            }
+          },
+          responses: {
+            "200": {
+              description: "Persist result",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/RememberResponse" }
+                }
+              }
+            },
+            "400": {
+              description: "Invalid request payload",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/api/recall": {
+        post: {
+          summary: "Recall relevant chunks for a query",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  $ref: "#/components/schemas/RecallRequest"
+                }
+              }
+            }
+          },
+          responses: {
+            "200": {
+              description: "Recall result",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/RecallResponse" }
+                }
+              }
+            },
+            "400": {
+              description: "Invalid request payload",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/api/chat": {
+        post: {
+          summary: "Ask chat endpoint with optional selected context and impact metrics",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  $ref: "#/components/schemas/ChatRequest"
+                }
+              }
+            }
+          },
+          responses: {
+            "200": {
+              description: "Chat response",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ChatResponse" }
+                }
+              }
+            },
+            "400": {
+              description: "Invalid request payload",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" }
+                }
+              }
+            },
+            "422": { description: "Guard/compliance blocked" }
           }
         }
       },
@@ -307,7 +577,14 @@ export function buildNexusOpenApiSpec(options = {}) {
             }
           },
           responses: {
-            "200": { description: "Answer generated" },
+            "200": {
+              description: "Answer generated",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/AskResponse" }
+                }
+              }
+            },
             "400": {
               description: "Invalid request payload",
               content: {
@@ -316,7 +593,14 @@ export function buildNexusOpenApiSpec(options = {}) {
                 }
               }
             },
-            "422": { description: "Guard/compliance blocked" },
+            "422": {
+              description: "Guard/compliance blocked",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/AskResponse" }
+                }
+              }
+            },
             "500": {
               description: "Internal error",
               content: {

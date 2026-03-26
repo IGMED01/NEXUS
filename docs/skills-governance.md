@@ -94,6 +94,22 @@ If any point fails, the skill stays blocked.
 - keep a documented fallback path without that skill
 - review approved skills periodically (recommended: monthly)
 
+## Auto-generated skills gate (NEXUS)
+
+For `skills/generated/*` produced by the auto-generator:
+
+- require user proposal/approval before draft creation (interactive mode by default)
+- validate against installed-skill catalog (repo + system paths) before creation
+- block exact installed duplicates by default
+- block near-duplicate similar skills by default (similarity threshold)
+- run `npm run skills:doctor` regularly to audit catalog conflicts
+- use `npm run skills:doctor:strict` for deterministic repo-only gate
+- use `npm run skills:doctor:strict:full` for repo+system extended audits
+- block dangerous/system-impact patterns (for example destructive shell commands or remote pipe-to-shell execution)
+- keep status as `draft` until promotion metrics pass
+- promote `draft -> experimental` only when token/time/error thresholds pass
+- if token metrics are missing, hold promotion by default
+
 ## Incident response
 
 If a skill is suspected unsafe:
