@@ -16,6 +16,8 @@ git clone https://github.com/IGMED01/NEXUS.git
 cd NEXUS
 npm ci --ignore-scripts
 npm run doctor:json
+# strict production safety profile (plan gate + scope lock)
+npm run doctor:json -- --config learning-context.config.production.json
 ```
 
 ## Quick start
@@ -33,13 +35,46 @@ npm run api:nexus
 
 # 4) Open interactive shell (tabs: recall/teach/remember/doctor/select)
 node src/cli.js shell --workspace . --project nexus
+# menu controls: ↑/↓ move • Enter run • /skills skills manager • /menu toggle
+# requires a real TTY terminal (not piped stdin)
+# in Skills Manager, select a skill to open per-skill actions (preview, promote, archive)
+
+# 5) Generate draft skills from repetitive shell tasks (interactive proposal)
+npm run skills:auto
+
+# 6) Promote healthy drafts to experimental when token/time/error thresholds pass
+npm run skills:promote
+
+# 7) Audit duplicates/similar skills installed in repo + system catalogs
+npm run skills:doctor
+# deterministic strict check (repo scope only)
+npm run skills:doctor:strict
+# extended strict audit (repo + system catalogs)
+npm run skills:doctor:strict:full
+
+# 8) End-to-end API smoke (remember -> recall -> chat -> ask -> guard)
+npm run e2e:nexus
 ```
+
+## Shell troubleshooting
+
+- Run shell from repository root:
+  - `cd NEXUS`
+  - `node src/cli.js shell --workspace . --project nexus`
+- If your terminal shows redraw loops, use safe render mode:
+  - PowerShell: `$env:NEXUS_SHELL_RENDER_MODE='safe'`
+  - Bash: `export NEXUS_SHELL_RENDER_MODE=safe`
+- Recommended validation after install:
+  - `npm run doctor && npm run skills:doctor`
+- Write-mode commands (`remember`, `close`, `sync-knowledge`, `readme --output`, `ingest-security --output`) require:
+  - `--plan-approved true`
 
 ## What NEXUS does today
 
 - Context selection with noise suppression.
 - Teaching packet generation tied to changed files and tests.
 - Durable memory via Engram with resilient fallback.
+- Internal SYNC runtime (detect → chunk → dedup → version → persist) via `src/sync`.
 - HTTP API + SDK + OpenAPI + demo UI.
 - Guard, observability, versioning, and eval gates in CI.
 
@@ -49,6 +84,7 @@ node src/cli.js shell --workspace . --project nexus
 - [NEXUS plan](docs/planning/nexus-plan.md)
 - [NEXUS API guide](docs/nexus-api.md)
 - [Integration guide](docs/integration.md)
+- [Skill auto-generator (MVP)](docs/skills-auto-generator.md)
 - [Release checklist](docs/release-checklist.md)
 
 ## OSS

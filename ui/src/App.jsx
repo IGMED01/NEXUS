@@ -111,7 +111,7 @@ function OfflineBanner({ onDismiss }) {
         <span style={{ fontSize:'12px', color:'rgba(239,68,68,0.85)' }}>API Server no disponible —</span>
         <code style={{ fontSize:'11px', fontFamily:'JetBrains Mono,monospace', padding:'2px 8px',
           background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.15)', color:'rgba(239,68,68,0.65)' }}>
-          node src/api/server.js --port 3100
+          node src/api/start.js --port 3100
         </code>
       </div>
       <button onClick={onDismiss} style={{ background:'none', border:'none', color:'rgba(239,68,68,0.4)', cursor:'pointer', fontSize:'16px', lineHeight:1, flexShrink:0 }}>✕</button>
@@ -161,7 +161,7 @@ const EXAMPLE_PROMPTS = [
   { icon:'🧪', label:'Testing standards', q:'What testing tools and coverage targets does the project use?' },
 ]
 
-function QueryBlock({ onChunks }) {
+function QueryBlock({ onChunks, onContextStats }) {
   const [messages, setMessages] = useState([{ role:'nexus', text:'Preguntame sobre tu base de conocimiento. Selecciono el contexto relevante y elimino el ruido.', meta:null, query:null }])
   const [input, setInput]       = useState('')
   const [loading, setLoading]   = useState(false)
@@ -193,11 +193,12 @@ function QueryBlock({ onChunks }) {
     setInput('')
     setMessages(m => [...m, { role:'user', text:q, meta:null, query:q }])
     setLoading(true); onChunks([])
+    onContextStats?.(null)
     setShowPrompts(false)
 
     // Step 1: Recall chunks
     const { ok: recallOk, data: recallData } = await apiFetch('POST', '/api/recall', { query:q })
-    const chunks = recallData.chunks ?? []
+    const chunks = Array.isArray(recallData.chunks) ? recallData.chunks : []
     const avgScore = chunks.length ? chunks.reduce((a,c) => a+(c.priority??c.score??0),0)/chunks.length : 0
     const tokens = chunks.reduce((a,c) => a+(c.tokens??Math.ceil((c.content??'').length/4)),0)
     onChunks(chunks)
@@ -214,12 +215,90 @@ function QueryBlock({ onChunks }) {
     const rawReplyText = rawRes.ok ? (rawRes.data.response ?? '') : ''
     const provider = nexusRes.ok ? nexusRes.data.provider : null
     const llmModel = nexusRes.ok ? nexusRes.data.model : null
+    const impactFromApi = nexusRes.data?.impact ?? null
+    const promptStats = nexusRes.data?.promptStats ?? nexusRes.data?.prompt?.stats ?? {}
+    const selectedChunks = Number.isFinite(promptStats?.includedChunks) ? Math.max(0, Number(promptStats.includedChunks)) : chunks.length
+    const selectedTokens = Number.isFinite(promptStats?.usedTokens)
+      ? Math.max(0, Number(promptStats.usedTokens))
+      : Number.isFinite(nexusRes.data?.context?.selectedTokens)
+        ? Math.max(0, Number(nexusRes.data.context.selectedTokens))
+        : tokens
+    const suppressedChunks = Number.isFinite(promptStats?.suppressedChunks)
+      ? Math.max(0, Number(promptStats.suppressedChunks))
+      : Math.max(0, chunks.length - selectedChunks)
+    const suppressedTokens = Math.max(0, tokens - selectedTokens)
+    const savingsPct = tokens > 0 ? Math.round((suppressedTokens / tokens) * 100) : 0
+
+    const impactResolved = impactFromApi && typeof impactFromApi === 'object'
+      ? {
+          memory: {
+            chunks: Number.isFinite(impactFromApi?.withoutNexus?.chunks) ? Number(impactFromApi.withoutNexus.chunks) : chunks.length,
+            tokens: Number.isFinite(impactFromApi?.withoutNexus?.tokens) ? Number(impactFromApi.withoutNexus.tokens) : tokens,
+          },
+          withNexus: {
+            chunks: Number.isFinite(impactFromApi?.withNexus?.chunks) ? Number(impactFromApi.withNexus.chunks) : selectedChunks,
+            tokens: Number.isFinite(impactFromApi?.withNexus?.tokens) ? Number(impactFromApi.withNexus.tokens) : selectedTokens,
+          },
+          withoutNexus: {
+            chunks: Number.isFinite(impactFromApi?.withoutNexus?.chunks) ? Number(impactFromApi.withoutNexus.chunks) : chunks.length,
+            tokens: Number.isFinite(impactFromApi?.withoutNexus?.tokens) ? Number(impactFromApi.withoutNexus.tokens) : tokens,
+          },
+          suppressed: {
+            chunks: Number.isFinite(impactFromApi?.suppressed?.chunks) ? Number(impactFromApi.suppressed.chunks) : suppressedChunks,
+            tokens: Number.isFinite(impactFromApi?.suppressed?.tokens) ? Number(impactFromApi.suppressed.tokens) : suppressedTokens,
+          },
+          savings: {
+            tokens: Number.isFinite(impactFromApi?.savings?.tokens) ? Number(impactFromApi.savings.tokens) : suppressedTokens,
+            percent: Number.isFinite(impactFromApi?.savings?.percent) ? Number(impactFromApi.savings.percent) : savingsPct,
+          },
+        }
+      : {
+          memory: {
+            chunks: chunks.length,
+            tokens
+          },
+          withNexus: {
+            chunks: selectedChunks,
+            tokens: selectedTokens
+          },
+          withoutNexus: {
+            chunks: chunks.length,
+            tokens
+          },
+          suppressed: {
+            chunks: suppressedChunks,
+            tokens: suppressedTokens
+          },
+          savings: {
+            tokens: suppressedTokens,
+            percent: savingsPct
+          },
+        }
+
+    onContextStats?.({
+      query: q,
+      ...impactResolved,
+      quality: {
+        avgScore
+      }
+    })
 
     setMessages(m => [...m, {
       role:'nexus',
       text:nexusReply,
       rawText: rawReplyText || null,
-      meta: chunks.length ? { chunks:chunks.length, tokens, score:avgScore, provider, model:llmModel } : null,
+      meta: chunks.length ? {
+        chunks: selectedChunks,
+        tokens: selectedTokens,
+        recoveredChunks: chunks.length,
+        recoveredTokens: tokens,
+        suppressedChunks,
+        suppressedTokens,
+        savingsPct,
+        score:avgScore,
+        provider,
+        model:llmModel
+      } : null,
       query:q
     }])
   }
@@ -290,8 +369,11 @@ function QueryBlock({ onChunks }) {
                       <div style={{ marginTop:'10px', padding:'6px 10px', background:'rgba(124,58,237,0.05)',
                         border:'1px solid rgba(124,58,237,0.12)', borderLeft:'2px solid var(--accent)', display:'flex', gap:'8px', alignItems:'center', flexWrap:'wrap' }}>
                         <span style={{ fontSize:'9px', color:'var(--accent-2)', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.6px' }}>NEXUS aportó</span>
-                        <span style={{ fontSize:'9px', fontFamily:'JetBrains Mono,monospace', color:'var(--text-3)', background:'var(--surface-3)', border:'1px solid var(--border)', padding:'1px 6px' }}>{m.meta.chunks} chunks</span>
-                        <span style={{ fontSize:'9px', fontFamily:'JetBrains Mono,monospace', color:'var(--text-3)', background:'var(--surface-3)', border:'1px solid var(--border)', padding:'1px 6px' }}>{m.meta.tokens.toLocaleString()} tokens de contexto</span>
+                        <span style={{ fontSize:'9px', fontFamily:'JetBrains Mono,monospace', color:'var(--text-3)', background:'var(--surface-3)', border:'1px solid var(--border)', padding:'1px 6px' }}>{m.meta.chunks} chunks seleccionados</span>
+                        <span style={{ fontSize:'9px', fontFamily:'JetBrains Mono,monospace', color:'var(--text-3)', background:'var(--surface-3)', border:'1px solid var(--border)', padding:'1px 6px' }}>{m.meta.tokens.toLocaleString()} tokens efectivos</span>
+                        {Number.isFinite(m.meta.suppressedChunks) && m.meta.suppressedChunks > 0 && (
+                          <span style={{ fontSize:'9px', fontFamily:'JetBrains Mono,monospace', color:'#f59e0b', background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.2)', padding:'1px 6px' }}>-{m.meta.suppressedChunks} chunks</span>
+                        )}
                         <span style={{ fontSize:'9px', fontFamily:'JetBrains Mono,monospace', color:'var(--accent-2)', background:'rgba(168,85,247,0.08)', border:'1px solid rgba(168,85,247,0.2)', padding:'1px 6px' }}>score avg {(m.meta.score*100).toFixed(0)}%</span>
                         {m.meta.provider && (
                           <span style={{ fontSize:'9px', fontFamily:'JetBrains Mono,monospace', color:'var(--green)', background:'rgba(16,185,129,0.08)', border:'1px solid rgba(16,185,129,0.2)', padding:'1px 7px' }}>{m.meta.provider}</span>
@@ -363,37 +445,71 @@ function QueryBlock({ onChunks }) {
   )
 }
 
-function ContextBlock({ chunks }) {
-  const tokens = chunks.reduce((a,c)=>a+(c.tokens??Math.ceil((c.content??'').length/4)),0)
-  const pct = Math.min(100, Math.round((tokens/8192)*100))
+function ContextBlock({ chunks, stats }) {
+  const recoveredTokens = stats?.memory?.tokens ?? chunks.reduce((a,c)=>a+(c.tokens??Math.ceil((c.content??'').length/4)),0)
+  const recoveredChunks = stats?.memory?.chunks ?? chunks.length
+  const withNexusTokens = stats?.withNexus?.tokens ?? recoveredTokens
+  const withNexusChunks = stats?.withNexus?.chunks ?? recoveredChunks
+  const withoutNexusTokens = stats?.withoutNexus?.tokens ?? recoveredTokens
+  const withoutNexusChunks = stats?.withoutNexus?.chunks ?? recoveredChunks
+  const suppressedTokens = stats?.suppressed?.tokens ?? Math.max(0, withoutNexusTokens - withNexusTokens)
+  const suppressedChunks = stats?.suppressed?.chunks ?? Math.max(0, withoutNexusChunks - withNexusChunks)
+  const savingsPercent = stats?.savings?.percent ?? (withoutNexusTokens > 0 ? Math.round((suppressedTokens / withoutNexusTokens) * 100) : 0)
+  const avgScore = stats?.quality?.avgScore ?? (chunks.length ? chunks.reduce((a,c)=>a+(c.priority??c.score??0),0)/chunks.length : 0)
+  const hasStats = recoveredChunks > 0 || withoutNexusTokens > 0
+
+  const cards = [
+    { label:'Memoria recuperada', value:`${recoveredChunks} chunks`, sub:`${recoveredTokens.toLocaleString()} tokens` },
+    { label:'Sin NEXUS (bruto)', value:`${withoutNexusTokens.toLocaleString()} tk`, sub:`${withoutNexusChunks} chunks` },
+    { label:'Con NEXUS', value:`${withNexusTokens.toLocaleString()} tk`, sub:`${withNexusChunks} chunks` },
+    { label:'Ahorro en contexto', value:`-${suppressedTokens.toLocaleString()} tk`, sub:`-${suppressedChunks} chunks` },
+    { label:'Reducción', value:`${savingsPercent}%`, sub:'menos contexto enviado' },
+    { label:'Relevancia media', value:`${(avgScore*100).toFixed(0)}%`, sub:'score de selección' },
+  ]
+
   return (
     <Bento area="context">
-      <CellHeader title="🎯 Context Selected" right={chunks.length>0?`${chunks.length} chunks`:undefined} />
-      <div style={{ flex:1, overflowY:'auto', padding:'10px', display:'flex', flexDirection:'column', gap:'6px', minHeight:0 }}>
-        {chunks.length===0 ? <EmptyState icon="🔍" text={'El contexto seleccionado\naparecerá aquí'} /> : (
-          chunks.map((c,i) => {
-            const s = c.priority??c.score??0
-            return (
-              <div key={i} className="reveal" style={{ background:'var(--surface-2)', border:'1px solid var(--border)', borderLeft:`2px solid ${scoreBorder(s)}`, padding:'8px 10px', animationDelay:`${i*35}ms` }}>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'5px', gap:'8px' }}>
-                  <span style={{ fontSize:'10px', fontFamily:'JetBrains Mono,monospace', color:'var(--text-3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>{(c.source??c.id??'chunk').split('/').pop()}</span>
-                  <span style={{ fontSize:'11px', fontFamily:'JetBrains Mono,monospace', fontWeight:700, color:scoreFg(s), flexShrink:0 }}>{(s*100).toFixed(0)}%</span>
+      <CellHeader title="📊 Context Impact (NEXUS)" right={hasStats?`${savingsPercent}% ahorro`:undefined} />
+      <div style={{ flex:1, overflowY:'auto', padding:'10px', display:'flex', flexDirection:'column', gap:'8px', minHeight:0 }}>
+        {!hasStats ? (
+          <EmptyState icon="📉" text={'La comparativa de contexto\naparecerá después de una consulta'} />
+        ) : (
+          <>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px' }}>
+              {cards.map((card, index) => (
+                <div key={card.label} className={`reveal s${(index % 4) + 1}`} style={{
+                  background:'var(--surface-2)', border:'1px solid var(--border)', padding:'8px 10px',
+                  borderTop: index===3 || index===4 ? '2px solid rgba(16,185,129,0.35)' : '2px solid rgba(124,58,237,0.25)'
+                }}>
+                  <div style={{ fontSize:'9px', textTransform:'uppercase', letterSpacing:'0.7px', color:'var(--text-3)', marginBottom:'5px' }}>{card.label}</div>
+                  <div style={{ fontSize:'15px', fontWeight:700, color:'var(--text-1)', fontFamily:'JetBrains Mono,monospace', lineHeight:1.2 }}>{card.value}</div>
+                  <div style={{ fontSize:'9px', color:'var(--text-3)', marginTop:'3px' }}>{card.sub}</div>
                 </div>
-                <ProgressBar value={s*100} color={scoreColor(s)} style={{ height:'1px', marginBottom:'6px' }} />
-                <p style={{ fontSize:'11px', color:'var(--text-2)', lineHeight:1.55, overflow:'hidden', display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical' }}>{(c.content??'').slice(0,180)}</p>
+              ))}
+            </div>
+
+            {chunks.length > 0 && (
+              <div style={{ background:'var(--surface-2)', border:'1px solid var(--border)', padding:'8px 10px' }}>
+                <div style={{ fontSize:'9px', textTransform:'uppercase', letterSpacing:'0.7px', color:'var(--text-3)', marginBottom:'6px' }}>Top chunks seleccionados</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:'5px' }}>
+                  {chunks.slice(0, 3).map((c, i) => {
+                    const score = c.priority ?? c.score ?? 0
+                    return (
+                      <div key={`${c.id ?? c.source ?? 'chunk'}-${i}`} style={{ padding:'6px 8px', background:'var(--surface-3)', border:'1px solid var(--border)' }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', gap:'8px', marginBottom:'3px' }}>
+                          <span style={{ fontSize:'10px', color:'var(--text-3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{(c.source??c.id??'chunk').split('/').pop()}</span>
+                          <span style={{ fontSize:'10px', fontFamily:'JetBrains Mono,monospace', color:scoreFg(score) }}>{(score*100).toFixed(0)}%</span>
+                        </div>
+                        <ProgressBar value={score*100} color={scoreColor(score)} style={{ height:'1px' }} />
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-            )
-          })
+            )}
+          </>
         )}
       </div>
-      {chunks.length>0 && (
-        <div className="reveal" style={{ padding:'8px 12px 10px', borderTop:'1px solid var(--border)' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', fontSize:'10px', color:'var(--text-3)', marginBottom:'5px' }}>
-            <span>Token budget</span><span style={{ fontFamily:'JetBrains Mono,monospace' }}>{tokens.toLocaleString()} / 8,192</span>
-          </div>
-          <ProgressBar value={pct} color={pct>80?'rose':pct>55?'amber':'violet'} />
-        </div>
-      )}
     </Bento>
   )
 }
@@ -516,6 +632,7 @@ export default function App() {
   const [online, setOnline] = useState(false)
   const [endpoints, setEndpoints] = useState(0)
   const [chunks, setChunks] = useState([])
+  const [contextStats, setContextStats] = useState(null)
   const [themeOpen, setThemeOpen] = useState(false)
   const [ingestOpen, setIngestOpen] = useState(false)
   const [wikiOpen, setWikiOpen] = useState(false)
@@ -549,8 +666,8 @@ export default function App() {
       {apiError && <OfflineBanner onDismiss={() => setApiError(false)} />}
       <main style={{ flex:1, padding:'10px', overflow:'auto' }}>
         <div style={{ display:'grid', gridTemplateAreas:'"query query context" "query query context" "guard pulse context"', gridTemplateColumns:'1fr 1fr 290px', gridTemplateRows:'1fr 1fr auto', gap:'6px', height:'calc(100vh - 44px - 20px)', maxWidth:'1380px', margin:'0 auto' }}>
-          <QueryBlock onChunks={setChunks} />
-          <ContextBlock chunks={chunks} />
+          <QueryBlock onChunks={setChunks} onContextStats={setContextStats} />
+          <ContextBlock chunks={chunks} stats={contextStats} />
           <GuardBlock />
           <PulseBlock />
         </div>

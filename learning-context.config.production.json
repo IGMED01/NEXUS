@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "1.0.0",
+  "project": "nexus",
+  "workspace": ".",
+  "output": {
+    "jsonSchemaVersion": "1.0.0"
+  },
+  "selection": {
+    "tokenBudget": 350,
+    "maxChunks": 6,
+    "minScore": 0.25,
+    "sentenceBudget": 3
+  },
+  "memory": {
+    "enabled": true,
+    "project": "nexus",
+    "limit": 3,
+    "scope": "project",
+    "backend": "resilient",
+    "autoRecall": true,
+    "autoRemember": false,
+    "strictRecall": false,
+    "degradedRecall": true
+  },
+  "engram": {
+    "binaryPath": "tools/engram/engram.exe",
+    "dataDir": ".engram"
+  },
+  "security": {
+    "ignoreSensitiveFiles": true,
+    "redactSensitiveContent": true,
+    "ignoreGeneratedFiles": true,
+    "allowSensitivePaths": [],
+    "extraSensitivePathFragments": []
+  },
+  "scan": {
+    "ignoreDirs": [".tmp", ".cache", "tmp", ".turbo", ".next", "out", ".lcs"]
+  },
+  "safety": {
+    "requirePlanForWrite": true,
+    "allowedScopePaths": [".", "src", "docs", "scripts", "test", "ui", "examples", "benchmark"],
+    "maxTokenBudget": 700,
+    "requireExplicitFocusForWorkspaceScan": true,
+    "minWorkspaceFocusLength": 24,
+    "blockDebugWithoutStrongFocus": true
+  },
+  "guard": {
+    "enabled": false,
+    "rules": [
+      {
+        "type": "input-validation",
+        "enabled": true,
+        "params": {
+          "minLength": 3,
+          "maxLength": 2000,
+          "blockInjection": true
+        }
+      },
+      {
+        "type": "rate-limit",
+        "enabled": true,
+        "params": {
+          "maxRequests": 60,
+          "windowMs": 60000
+        }
+      },
+      {
+        "type": "keyword-block",
+        "enabled": false,
+        "params": {
+          "keywords": [],
+          "message": ""
+        }
+      }
+    ],
+    "defaultBlockMessage": "This query is outside the scope of this project."
+  }
+}
+

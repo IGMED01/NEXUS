@@ -15,6 +15,7 @@ Central index for all repository documentation.
 - [Context noise cancellation](./context-noise-cancellation.md)
 - [Security model](./security-model.md)
 - [Ops runbook](./ops-runbook.md)
+- [SYNC ownership](./sync-ownership.md)
 - [Benchmark strategy](./benchmark.md)
 - [Status actual](./status-actual.md)
 - [NEXUS:3 (LCS) scope](./lcs-scope.md)
@@ -41,10 +42,12 @@ Central index for all repository documentation.
 
 - [Zero-to-demo guide](./zero-to-demo.md)
 - [Release hardening checklist](./release-checklist.md)
+- API smoke e2e (remember→recall→chat→ask→guard): `npm run e2e:nexus`
 
 ## Guides and governance
 
 - [Integration guide](./integration.md)
+- [Skill auto-generator (MVP)](./skills-auto-generator.md)
 - [Repo split rationale](./repo-split-5-repos.md)
 - [Repo analysis](./repo-analysis.md)
 - [Skills governance](./skills-governance.md)

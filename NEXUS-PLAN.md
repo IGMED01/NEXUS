@@ -69,6 +69,27 @@ Eso significa:
 
 ---
 
+## Ejecución operativa actual (actualizado: 26 marzo 2026)
+
+### Avance por fase
+
+- [x] **FASE 1 (NEXUS:1 + NEXUS:2 + NEXUS:4)**  
+  Processing + storage + guard en runtime y en tests de regresión.
+- [x] **FASE 2 (NEXUS:6 + NEXUS:10 + NEXUS:5)**  
+  LLM/pipeline/API activos; fallback degradado para `/api/chat` y `/api/ask`; auth y OpenAPI operativos.
+- [x] **FASE 3 (NEXUS:0 + NEXUS:7 + NEXUS:9 + NEXUS:8)**  
+  SYNC interno consolidado, eval suites, versioning/rollback y observabilidad con dashboard/alerts.
+- [~] **FASE 4 (NEXUS:3 + NEXUS:10 + NEXUS:5)**  
+  LCS core estable + shell interactiva + demo web; quedan ajustes finos de UX y endurecimiento e2e para cierre final.
+
+### Cierre incremental aplicado en esta iteración
+
+- [x] Ingest por adapters integrado al pipeline default (`markdown`/`pdf`) para aligerar carga operativa.
+- [x] Comparativa explícita de impacto de contexto (`withNexus` vs `withoutNexus`) en respuestas API.
+- [x] Degradación segura de `/api/ask` cuando no hay proveedor LLM disponible (sin romper flujo).
+
+---
+
 ## Estado Actual por Capa
 
 | # | Capa | Completitud | Estado |

@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "1.0.0",
+  "updatedAt": "2026-03-26T00:00:00.000Z",
+  "totals": {
+    "runs": 120,
+    "degradedRuns": 9,
+    "durationMsTotal": 31200,
+    "blockedRuns": 12,
+    "preventedErrors": 10
+  },
+  "commands": {
+    "teach": {
+      "runs": 40,
+      "degradedRuns": 3,
+      "blockedRuns": 2,
+      "durationMsTotal": 11200,
+      "lastDurationMs": 220,
+      "lastRunAt": "2026-03-25T22:10:00.000Z"
+    },
+    "select": {
+      "runs": 34,
+      "degradedRuns": 1,
+      "blockedRuns": 1,
+      "durationMsTotal": 6800,
+      "lastDurationMs": 90,
+      "lastRunAt": "2026-03-25T22:12:00.000Z"
+    },
+    "remember": {
+      "runs": 18,
+      "degradedRuns": 3,
+      "blockedRuns": 5,
+      "durationMsTotal": 2400,
+      "lastDurationMs": 80,
+      "lastRunAt": "2026-03-25T22:14:00.000Z"
+    },
+    "readme": {
+      "runs": 12,
+      "degradedRuns": 2,
+      "blockedRuns": 2,
+      "durationMsTotal": 10800,
+      "lastDurationMs": 340,
+      "lastRunAt": "2026-03-25T22:16:00.000Z"
+    },
+    "doctor": {
+      "runs": 16,
+      "degradedRuns": 0,
+      "blockedRuns": 0,
+      "durationMsTotal": 0,
+      "lastDurationMs": 0,
+      "lastRunAt": "2026-03-25T22:18:00.000Z"
+    }
+  },
+  "recall": {
+    "attempts": 52,
+    "hits": 23,
+    "recoveredChunksTotal": 79,
+    "selectedChunksTotal": 41,
+    "suppressedChunksTotal": 28,
+    "byStatus": {
+      "recalled": 23,
+      "empty": 19,
+      "failed-degraded": 10
+    }
+  },
+  "selection": {
+    "selectedTotal": 280,
+    "suppressedTotal": 8620,
+    "samples": 87
+  },
+  "safety": {
+    "blockedRuns": 12,
+    "preventedErrors": 10,
+    "byReason": {
+      "safety-gate": 10,
+      "missing-credentials": 2
+    }
+  }
+}
+

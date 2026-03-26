@@ -14,9 +14,9 @@ import { buildLlmPrompt } from "../llm/prompt-builder.js";
 import { parseLlmResponse } from "../llm/response-parser.js";
 import { createLlmProviderRegistry } from "../llm/provider.js";
 import { createClaudeProvider } from "../llm/claude-provider.js";
-import { createChangeDetector } from "../sync/change-detector.js";
 import { createSyncScheduler } from "../sync/sync-scheduler.js";
 import { createSyncDriftMonitor } from "../sync/drift-monitor.js";
+import { createSyncRuntime } from "../sync/sync-runtime.js";
 import { createPipelineBuilder, buildDefaultNexusPipeline } from "../orchestration/pipeline-builder.js";
 import { createDefaultExecutors } from "../orchestration/default-executors.js";
 import { loadDomainEvalSuite, runDomainEvalSuite } from "../eval/domain-eval-suite.js";
@@ -74,8 +74,112 @@ function sendHtml(response, statusCode, html) {
   response.end(html);
 }
 
+/**
+ * @param {string} text
+ */
+function estimateTokenCount(text) {
+  const normalized = String(text ?? "").trim();
+
+  if (!normalized) {
+    return 0;
+  }
+
+  return Math.max(1, Math.ceil(normalized.length / 4));
+}
+
+/**
+ * @param {unknown} value
+ */
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? /** @type {Record<string, unknown>} */ (value)
+    : {};
+}
+
+/**
+ * @param {unknown} value
+ */
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 function createRequestId() {
   return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * @param {{
+ *   rawChunks?: number,
+ *   rawTokens?: number,
+ *   selectedChunks?: number,
+ *   selectedTokens?: number,
+ *   suppressedChunks?: number,
+ *   suppressedTokens?: number
+ * }} input
+ */
+function buildContextImpact(input) {
+  const rawChunks = Math.max(0, Math.trunc(Number(input.rawChunks ?? 0)));
+  const rawTokens = Math.max(0, Math.trunc(Number(input.rawTokens ?? 0)));
+  const selectedChunks = Math.max(0, Math.trunc(Number(input.selectedChunks ?? 0)));
+  const selectedTokens = Math.max(0, Math.trunc(Number(input.selectedTokens ?? 0)));
+  const inferredSuppressedChunks = Math.max(0, rawChunks - selectedChunks);
+  const inferredSuppressedTokens = Math.max(0, rawTokens - selectedTokens);
+  const suppressedChunks = Number.isFinite(Number(input.suppressedChunks))
+    ? Math.max(0, Math.trunc(Number(input.suppressedChunks)))
+    : inferredSuppressedChunks;
+  const suppressedTokens = Number.isFinite(Number(input.suppressedTokens))
+    ? Math.max(0, Math.trunc(Number(input.suppressedTokens)))
+    : inferredSuppressedTokens;
+  const savingsPercent =
+    rawTokens > 0 ? Number(((suppressedTokens / rawTokens) * 100).toFixed(1)) : 0;
+
+  return {
+    withoutNexus: {
+      chunks: rawChunks,
+      tokens: rawTokens
+    },
+    withNexus: {
+      chunks: selectedChunks,
+      tokens: selectedTokens
+    },
+    suppressed: {
+      chunks: suppressedChunks,
+      tokens: suppressedTokens
+    },
+    savings: {
+      chunks: suppressedChunks,
+      tokens: suppressedTokens,
+      percent: savingsPercent
+    }
+  };
+}
+
+/**
+ * @param {unknown} entry
+ * @param {number} index
+ */
+function normalizeLegacyChunk(entry, index = 0) {
+  const record = asRecord(entry);
+  const chunkRecord = asRecord(record.chunk);
+  const id =
+    String(record.id ?? chunkRecord.id ?? `chunk-${index + 1}`).trim() ||
+    `chunk-${index + 1}`;
+  const source =
+    String(record.source ?? chunkRecord.source ?? id).trim() || id;
+  const content = String(record.content ?? chunkRecord.content ?? "");
+  const score = Number(record.score ?? record.priority ?? chunkRecord.priority ?? 0);
+  const safeScore = Number.isFinite(score) ? Math.max(0, score) : 0;
+  const tokens = estimateTokenCount(content);
+
+  return {
+    id,
+    source,
+    kind: String(record.kind ?? chunkRecord.kind ?? "doc"),
+    content,
+    score: safeScore,
+    priority: safeScore,
+    tokens
+  };
 }
 
 /**
@@ -127,6 +231,12 @@ function getRequestUrl(request) {
  *     rootPath?: string,
  *     intervalMs?: number,
  *     stateFilePath?: string,
+ *     manifestFilePath?: string,
+ *     versionFilePath?: string,
+ *     repositoryBaseDir?: string,
+ *     projectId?: string,
+ *     maxCharsPerChunk?: number,
+ *     security?: Parameters<import("../security/secret-redaction.js").resolveSecurityPolicy>[0],
  *     autoStart?: boolean,
  *     driftFilePath?: string,
  *     driftMaxHistory?: number
@@ -178,8 +288,15 @@ export function createNexusApiServer(options = {}) {
   });
 
   const syncRootPath = path.resolve(options.sync?.rootPath ?? process.cwd());
-  const changeDetector = createChangeDetector({
-    stateFilePath: options.sync?.stateFilePath
+  const syncRuntime = createSyncRuntime({
+    rootPath: syncRootPath,
+    projectId: options.sync?.projectId,
+    stateFilePath: options.sync?.stateFilePath,
+    manifestFilePath: options.sync?.manifestFilePath,
+    versionFilePath: options.sync?.versionFilePath,
+    repositoryBaseDir: options.sync?.repositoryBaseDir,
+    maxCharsPerChunk: options.sync?.maxCharsPerChunk,
+    security: options.sync?.security
   });
   const driftMonitor = createSyncDriftMonitor({
     filePath: options.sync?.driftFilePath,
@@ -188,15 +305,39 @@ export function createNexusApiServer(options = {}) {
 
   let lastSyncResult = {
     status: "never",
+    runId: "",
     summary: {
       discovered: 0,
       created: 0,
       changed: 0,
       deleted: 0,
-      unchanged: 0
+      unchanged: 0,
+      filesChanged: 0,
+      filesSkipped: 0,
+      chunksProcessed: 0,
+      chunksPersisted: 0,
+      chunksCreated: 0,
+      chunksUpdated: 0,
+      chunksUnchanged: 0,
+      chunksTombstoned: 0,
+      duplicatesDetected: 0,
+      redactionsApplied: 0
     },
     startedAt: "",
-    finishedAt: ""
+    finishedAt: "",
+    files: {
+      created: [],
+      changed: [],
+      deleted: [],
+      unchanged: []
+    },
+    errors: [],
+    warnings: [],
+    runtime: {
+      engine: "nexus-sync-internal",
+      dedupScope: "per-source",
+      repositoryBaseDir: syncRuntime.repositoryBaseDir
+    }
   };
 
   const scheduler = createSyncScheduler({
@@ -205,20 +346,51 @@ export function createNexusApiServer(options = {}) {
     async onTick() {
       const startedAt = new Date().toISOString();
       try {
-        const result = await changeDetector.detectChanges(syncRootPath);
+        const result = await syncRuntime.run();
         lastSyncResult = {
-          status: "ok",
-          startedAt,
-          finishedAt: new Date().toISOString(),
           ...result
         };
         await driftMonitor.record(lastSyncResult);
+
+        if (result.status === "error") {
+          throw new Error(result.errors?.[0] || "Sync runtime failed.");
+        }
       } catch (error) {
         lastSyncResult = {
           status: "error",
+          runId: "",
           startedAt,
           finishedAt: new Date().toISOString(),
-          error: error instanceof Error ? error.message : String(error)
+          summary: {
+            discovered: 0,
+            created: 0,
+            changed: 0,
+            deleted: 0,
+            unchanged: 0,
+            filesChanged: 0,
+            filesSkipped: 0,
+            chunksProcessed: 0,
+            chunksPersisted: 0,
+            chunksCreated: 0,
+            chunksUpdated: 0,
+            chunksUnchanged: 0,
+            chunksTombstoned: 0,
+            duplicatesDetected: 0,
+            redactionsApplied: 0
+          },
+          files: {
+            created: [],
+            changed: [],
+            deleted: [],
+            unchanged: []
+          },
+          errors: [error instanceof Error ? error.message : String(error)],
+          warnings: [],
+          runtime: {
+            engine: "nexus-sync-internal",
+            dedupScope: "per-source",
+            repositoryBaseDir: syncRuntime.repositoryBaseDir
+          }
         };
         await driftMonitor.record(lastSyncResult);
         throw error;
@@ -239,6 +411,31 @@ export function createNexusApiServer(options = {}) {
     description: options.openApi?.description
   });
   const demoPage = buildNexusDemoPage();
+  const compatibilityRoutes = [
+    "GET /api/health",
+    "GET /api/routes",
+    "GET /api/metrics",
+    "POST /api/remember",
+    "POST /api/recall",
+    "POST /api/chat",
+    "POST /api/guard",
+    "GET /api/openapi.json",
+    "GET /api/demo",
+    "GET /api/guard/policies",
+    "POST /api/guard/output",
+    "POST /api/pipeline/run",
+    "POST /api/ask",
+    "GET /api/sync/status",
+    "GET /api/sync/drift",
+    "POST /api/sync",
+    "GET /api/observability/dashboard",
+    "GET /api/observability/alerts",
+    "POST /api/evals/domain-suite",
+    "GET /api/versioning/prompts",
+    "POST /api/versioning/prompts",
+    "GET /api/versioning/compare",
+    "POST /api/versioning/rollback-plan"
+  ];
 
   const host = options.host ?? "127.0.0.1";
   const port = Math.max(0, Number(options.port ?? 8787));
@@ -278,6 +475,49 @@ export function createNexusApiServer(options = {}) {
           time: new Date().toISOString()
         });
         await recordApiMetric("api.health", requestStartedAt);
+        return;
+      }
+
+      if (method === "GET" && pathname === "/api/routes") {
+        sendJson(response, 200, {
+          status: "ok",
+          routes: compatibilityRoutes
+        });
+        await recordApiMetric("api.routes", requestStartedAt);
+        return;
+      }
+
+      if (method === "GET" && pathname === "/api/metrics") {
+        const report = await getObservabilityReport({
+          filePath: observabilityFilePath
+        });
+        const totalRequests = report.totals?.runs ?? 0;
+        const blocked = report.totals?.blockedRuns ?? 0;
+        const errorRate = report.totals?.degradedRate ?? 0;
+        const averageDurationMs = report.totals?.averageDurationMs ?? 0;
+
+        sendJson(response, 200, {
+          totalRequests,
+          p95: averageDurationMs,
+          errorRate,
+          blocked,
+          latency: {
+            p95: averageDurationMs
+          },
+          requests: {
+            total: totalRequests
+          },
+          errors: {
+            rate: errorRate
+          },
+          guard: {
+            blocked
+          },
+          recall: report.recall ?? {},
+          selection: report.selection ?? {},
+          totals: report.totals ?? {}
+        });
+        await recordApiMetric("api.metrics", requestStartedAt);
         return;
       }
 
@@ -329,6 +569,413 @@ export function createNexusApiServer(options = {}) {
           safety: {
             blocked: true,
             reason: authResult.reason ?? "unauthorized"
+          }
+        });
+        return;
+      }
+
+      if (method === "POST" && pathname === "/api/remember") {
+        const body = /** @type {{ title?: string, source?: string, content?: string, text?: string, type?: string, kind?: string }} */ (
+          await readJsonBody(request)
+        );
+        const title = String(body.title ?? body.source ?? "document").trim() || "document";
+        const content = String(body.content ?? body.text ?? "").trim();
+        const kind = String(body.type ?? body.kind ?? "doc").trim() || "doc";
+
+        if (!content) {
+          sendErrorJson(response, 400, {
+            requestId,
+            code: "missing_content",
+            message: "Missing 'content' in request body."
+          });
+          await recordApiMetric("api.remember", requestStartedAt, {
+            command: "api.remember",
+            durationMs: 0,
+            degraded: true,
+            safety: {
+              blocked: true,
+              reason: "missing-content"
+            }
+          });
+          return;
+        }
+
+        const ingestState = await defaultExecutors.ingest({
+          input: {
+            documents: [
+              {
+                source: title,
+                content,
+                kind
+              }
+            ],
+            query: "",
+            limit: 1
+          }
+        });
+        const processState = await defaultExecutors.process({
+          input: ingestState
+        });
+        const storeState = await defaultExecutors.store({
+          input: processState
+        });
+        const chunks = asArray(asRecord(processState).chunks);
+        const firstChunk = asRecord(chunks[0]);
+
+        sendJson(response, 200, {
+          status: "ok",
+          id: String(firstChunk.id ?? requestId),
+          title,
+          kind,
+          stored: Number(asRecord(storeState).storedCount ?? 0),
+          chunks: chunks.length,
+          tokens: estimateTokenCount(content),
+          repositoryFilePath: String(asRecord(storeState).repositoryFilePath ?? "")
+        });
+        await recordApiMetric("api.remember", requestStartedAt);
+        return;
+      }
+
+      if (method === "POST" && pathname === "/api/recall") {
+        const body = /** @type {{ query?: string, limit?: number }} */ (await readJsonBody(request));
+        const query = String(body.query ?? "").trim();
+        const limit =
+          typeof body.limit === "number" && Number.isFinite(body.limit)
+            ? Math.max(1, Math.trunc(body.limit))
+            : 8;
+
+        if (!query) {
+          sendErrorJson(response, 400, {
+            requestId,
+            code: "missing_query",
+            message: "Missing 'query' in request body."
+          });
+          await recordApiMetric("api.recall", requestStartedAt, {
+            command: "api.recall",
+            durationMs: 0,
+            degraded: true,
+            recall: {
+              attempted: true,
+              status: "failed",
+              recoveredChunks: 0,
+              selectedChunks: 0,
+              suppressedChunks: 0,
+              hit: false
+            },
+            safety: {
+              blocked: true,
+              reason: "missing-query"
+            }
+          });
+          return;
+        }
+
+        const recallState = await defaultExecutors.recall({
+          input: {
+            query,
+            limit
+          }
+        });
+        const recallResults = asArray(asRecord(recallState).results);
+        const chunks = recallResults.map((entry, index) => normalizeLegacyChunk(entry, index));
+        const tokenTotal = chunks.reduce((sum, chunk) => sum + estimateTokenCount(chunk.content), 0);
+
+        sendJson(response, 200, {
+          status: "ok",
+          query,
+          chunks,
+          total: chunks.length,
+          stats: {
+            chunks: chunks.length,
+            tokens: tokenTotal,
+            hit: chunks.length > 0
+          }
+        });
+        await recordApiMetric("api.recall", requestStartedAt, {
+          command: "api.recall",
+          durationMs: 0,
+          recall: {
+            attempted: true,
+            status: chunks.length ? "recalled" : "empty",
+            recoveredChunks: chunks.length,
+            selectedChunks: chunks.length,
+            suppressedChunks: 0,
+            hit: chunks.length > 0
+          },
+          selection: {
+            selectedCount: chunks.length,
+            suppressedCount: 0
+          }
+        });
+        return;
+      }
+
+      if (method === "POST" && pathname === "/api/chat") {
+        const body = /** @type {{
+         *   query?: string,
+         *   question?: string,
+         *   task?: string,
+         *   objective?: string,
+         *   language?: "es" | "en",
+         *   provider?: string,
+         *   fallbackProviders?: string[],
+         *   attemptTimeoutMs?: number,
+         *   model?: string,
+         *   chunks?: Array<Record<string, unknown>>,
+         *   withContext?: boolean,
+         *   tokenBudget?: number,
+         *   maxChunks?: number,
+         *   guardPolicyProfile?: string,
+         *   guard?: object,
+         *   compliance?: object
+         * }} */ (await readJsonBody(request));
+
+        const query = String(body.query ?? body.question ?? "").trim();
+
+        if (!query) {
+          sendErrorJson(response, 400, {
+            requestId,
+            code: "missing_query",
+            message: "Missing 'query' in request body."
+          });
+          await recordApiMetric("api.chat", requestStartedAt, {
+            command: "api.chat",
+            durationMs: 0,
+            degraded: true,
+            safety: {
+              blocked: true,
+              reason: "missing-query"
+            }
+          });
+          return;
+        }
+
+        const includeContext = body.withContext !== false;
+        const sourceChunks = includeContext ? asArray(body.chunks) : [];
+        const normalizedChunks = sourceChunks.map((entry, index) => {
+          const normalized = normalizeLegacyChunk(entry, index);
+          return {
+            id: normalized.id,
+            source: normalized.source,
+            kind: normalized.kind,
+            content: normalized.content,
+            priority: normalized.priority
+          };
+        });
+        const rawTokens = sourceChunks.reduce((sum, entry) => {
+          const record = asRecord(entry);
+          const providedTokens = Number(record.tokens ?? 0);
+
+          if (Number.isFinite(providedTokens) && providedTokens > 0) {
+            return sum + Math.round(providedTokens);
+          }
+
+          return sum + estimateTokenCount(String(record.content ?? ""));
+        }, 0);
+
+        const builtPrompt = buildLlmPrompt({
+          question: query,
+          task: body.task,
+          objective: body.objective,
+          language: body.language,
+          chunks: normalizedChunks,
+          tokenBudget: body.tokenBudget ?? options.llm?.tokenBudget,
+          maxChunks: body.maxChunks ?? options.llm?.maxChunks
+        });
+        const contextImpact = buildContextImpact({
+          rawChunks: sourceChunks.length,
+          rawTokens,
+          selectedChunks: builtPrompt.context.includedChunks.length,
+          selectedTokens: builtPrompt.context.stats.usedTokens,
+          suppressedChunks: builtPrompt.context.suppressedChunks.length
+        });
+
+        try {
+          const generation = await registry.generateWithFallback(builtPrompt.prompt, {
+            provider: body.provider,
+            fallbackProviders: Array.isArray(body.fallbackProviders)
+              ? body.fallbackProviders
+              : [],
+            attemptTimeoutMs: Number(
+              body.attemptTimeoutMs ?? options.llm?.attemptTimeoutMs ?? 0
+            ),
+            options: {
+              model: body.model
+            }
+          });
+          const generated = generation.generated;
+          const parsed = parseLlmResponse(generated.content);
+          const compliance = checkOutputCompliance(generated.content, /** @type {any} */ (body.compliance ?? {}));
+          const guardPolicy = resolveDomainGuardPolicy(
+            body.guardPolicyProfile,
+            /** @type {Record<string, unknown>} */ (body.guard ?? {})
+          );
+          const guard = enforceOutputGuard(generated.content, /** @type {any} */ (guardPolicy));
+          const isBlocked = !(guard.allowed && compliance.compliant);
+
+          await outputAuditor.record({
+            action: guard.action,
+            reasons: [...guard.reasons, ...compliance.violations],
+            outputLength: guard.output.length,
+            source: "api:chat",
+            metadata: {
+              provider: generation.provider,
+              fallbackAttempts: generation.attempts,
+              compliant: compliance.compliant
+            }
+          });
+
+          sendJson(response, isBlocked ? 422 : 200, {
+            status: isBlocked ? "blocked" : "ok",
+            response: guard.output,
+            provider: generation.provider,
+            model: generated.model,
+            usage: generated.usage ?? {},
+            blocked: isBlocked,
+            promptStats: builtPrompt.context.stats,
+            prompt: {
+              language: builtPrompt.language,
+              stats: builtPrompt.context.stats,
+              includedChunks: builtPrompt.context.includedChunks.length,
+              suppressedChunks: builtPrompt.context.suppressedChunks.length
+            },
+            context: {
+              rawChunks: sourceChunks.length,
+              rawTokens,
+              selectedChunks: builtPrompt.context.includedChunks.length,
+              selectedTokens: builtPrompt.context.stats.usedTokens,
+              suppressedChunks: builtPrompt.context.suppressedChunks.length
+            },
+            impact: contextImpact,
+            fallback: {
+              attempts: generation.attempts,
+              summary: generation.summary
+            },
+            parsed,
+            guard,
+            compliance
+          });
+          await recordApiMetric("api.chat", requestStartedAt, {
+            command: "api.chat",
+            durationMs: 0,
+            degraded: generation.summary.failedAttempts > 0,
+            selection: {
+              selectedCount: builtPrompt.context.includedChunks.length,
+              suppressedCount: builtPrompt.context.suppressedChunks.length
+            },
+            safety: {
+              blocked: isBlocked,
+              reason: guard.reasons[0] ?? compliance.violations[0] ?? ""
+            }
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const preview = normalizedChunks
+            .slice(0, 2)
+            .map((chunk, index) => {
+              const source = String(chunk.source ?? `chunk-${index + 1}`);
+              const excerpt = String(chunk.content ?? "").trim().slice(0, 220);
+              return `${index + 1}) [${source}] ${excerpt}`;
+            });
+          const fallbackResponse = [
+            "⚠ NEXUS está en modo degradado (sin proveedor LLM disponible).",
+            "",
+            normalizedChunks.length
+              ? "Resumen de contexto recuperado:"
+              : "No hay chunks recuperados para esta consulta.",
+            ...preview
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          sendJson(response, 200, {
+            status: "degraded",
+            degraded: true,
+            response: fallbackResponse,
+            provider: "offline-fallback",
+            model: "none",
+            usage: {
+              inputTokens: builtPrompt.context.stats.usedTokens,
+              outputTokens: estimateTokenCount(fallbackResponse)
+            },
+            blocked: false,
+            promptStats: builtPrompt.context.stats,
+            context: {
+              rawChunks: sourceChunks.length,
+              rawTokens,
+              selectedChunks: builtPrompt.context.includedChunks.length,
+              selectedTokens: builtPrompt.context.stats.usedTokens,
+              suppressedChunks: builtPrompt.context.suppressedChunks.length
+            },
+            impact: contextImpact,
+            fallback: {
+              attempts: 0,
+              summary: {
+                attemptedProviders: 0,
+                failedAttempts: 0,
+                succeededAfterRetries: false
+              }
+            },
+            error: message
+          });
+          await recordApiMetric("api.chat", requestStartedAt, {
+            command: "api.chat",
+            durationMs: 0,
+            degraded: true,
+            selection: {
+              selectedCount: builtPrompt.context.includedChunks.length,
+              suppressedCount: builtPrompt.context.suppressedChunks.length
+            },
+            safety: {
+              blocked: false,
+              reason: "llm-provider-unavailable"
+            }
+          });
+        }
+        return;
+      }
+
+      if (method === "POST" && pathname === "/api/guard") {
+        const guardStartedAt = Date.now();
+        const body = /** @type {{ query?: string, output?: string, guardPolicyProfile?: string, guard?: object, compliance?: object }} */ (
+          await readJsonBody(request)
+        );
+        const output = String(body.query ?? body.output ?? "");
+        const compliance = checkOutputCompliance(output, /** @type {any} */ (body.compliance ?? {}));
+        const guardPolicy = resolveDomainGuardPolicy(
+          body.guardPolicyProfile,
+          /** @type {Record<string, unknown>} */ (body.guard ?? {})
+        );
+        const guard = enforceOutputGuard(output, /** @type {any} */ (guardPolicy));
+        const blocked = !(guard.allowed && compliance.compliant);
+        const reason = guard.reasons[0] ?? compliance.violations[0] ?? "";
+
+        sendJson(response, blocked ? 403 : 200, {
+          status: blocked ? "blocked" : "ok",
+          blocked,
+          warned: !blocked && (guard.reasons.length > 0 || compliance.violations.length > 0),
+          blockedBy: reason,
+          userMessage: blocked ? reason || "Request blocked by guard policy." : "Allowed by guard policy.",
+          results: [
+            ...guard.reasons.map((entry) => ({
+              type: "guard",
+              message: entry
+            })),
+            ...compliance.violations.map((entry) => ({
+              type: "compliance",
+              message: entry
+            }))
+          ],
+          durationMs: Math.max(0, Date.now() - guardStartedAt),
+          guard,
+          compliance
+        });
+        await recordApiMetric("api.guard", requestStartedAt, {
+          command: "api.guard",
+          durationMs: 0,
+          safety: {
+            blocked,
+            reason
           }
         });
         return;
@@ -689,76 +1336,174 @@ export function createNexusApiServer(options = {}) {
           tokenBudget: body.tokenBudget ?? options.llm?.tokenBudget,
           maxChunks: body.maxChunks ?? options.llm?.maxChunks
         });
+        const requestChunks = Array.isArray(body.chunks) ? body.chunks : [];
+        const rawTokens = requestChunks.reduce((sum, entry) => {
+          const record = asRecord(entry);
+          const providedTokens = Number(record.tokens ?? 0);
 
-        const generation = await registry.generateWithFallback(builtPrompt.prompt, {
-          provider: body.provider,
-          fallbackProviders: Array.isArray(body.fallbackProviders)
-            ? body.fallbackProviders
-            : [],
-          attemptTimeoutMs: Number(
-            body.attemptTimeoutMs ?? options.llm?.attemptTimeoutMs ?? 0
-          ),
-          options: {
-            model: body.model
+          if (Number.isFinite(providedTokens) && providedTokens > 0) {
+            return sum + Math.round(providedTokens);
           }
-        });
-        const generated = generation.generated;
-        const parsed = parseLlmResponse(generated.content);
-        const compliance = checkOutputCompliance(generated.content, /** @type {any} */ (body.compliance ?? {}));
-        const guardPolicy = resolveDomainGuardPolicy(
-          body.guardPolicyProfile,
-          /** @type {Record<string, unknown>} */ (body.guard ?? {})
-        );
-        const guard = enforceOutputGuard(generated.content, /** @type {any} */ (guardPolicy));
 
-        await outputAuditor.record({
-          action: guard.action,
-          reasons: [...guard.reasons, ...compliance.violations],
-          outputLength: guard.output.length,
-          source: "api:ask",
-          metadata: {
+          return sum + estimateTokenCount(String(record.content ?? ""));
+        }, 0);
+        const contextImpact = buildContextImpact({
+          rawChunks: requestChunks.length,
+          rawTokens,
+          selectedChunks: builtPrompt.context.includedChunks.length,
+          selectedTokens: builtPrompt.context.stats.usedTokens,
+          suppressedChunks: builtPrompt.context.suppressedChunks.length
+        });
+
+        try {
+          const generation = await registry.generateWithFallback(builtPrompt.prompt, {
+            provider: body.provider,
+            fallbackProviders: Array.isArray(body.fallbackProviders)
+              ? body.fallbackProviders
+              : [],
+            attemptTimeoutMs: Number(
+              body.attemptTimeoutMs ?? options.llm?.attemptTimeoutMs ?? 0
+            ),
+            options: {
+              model: body.model
+            }
+          });
+          const generated = generation.generated;
+          const parsed = parseLlmResponse(generated.content);
+          const compliance = checkOutputCompliance(generated.content, /** @type {any} */ (body.compliance ?? {}));
+          const guardPolicy = resolveDomainGuardPolicy(
+            body.guardPolicyProfile,
+            /** @type {Record<string, unknown>} */ (body.guard ?? {})
+          );
+          const guard = enforceOutputGuard(generated.content, /** @type {any} */ (guardPolicy));
+
+          await outputAuditor.record({
+            action: guard.action,
+            reasons: [...guard.reasons, ...compliance.violations],
+            outputLength: guard.output.length,
+            source: "api:ask",
+            metadata: {
+              provider: generation.provider,
+              fallbackAttempts: generation.attempts,
+              compliant: compliance.compliant
+            }
+          });
+
+          sendJson(response, guard.allowed && compliance.compliant ? 200 : 422, {
+            status: guard.allowed && compliance.compliant ? "ok" : "blocked",
             provider: generation.provider,
-            fallbackAttempts: generation.attempts,
-            compliant: compliance.compliant
-          }
-        });
+            fallback: {
+              attempts: generation.attempts,
+              summary: generation.summary
+            },
+            prompt: {
+              language: builtPrompt.language,
+              stats: builtPrompt.context.stats,
+              includedChunks: builtPrompt.context.includedChunks.length,
+              suppressedChunks: builtPrompt.context.suppressedChunks.length
+            },
+            context: {
+              rawChunks: requestChunks.length,
+              rawTokens,
+              selectedChunks: builtPrompt.context.includedChunks.length,
+              selectedTokens: builtPrompt.context.stats.usedTokens,
+              suppressedChunks: builtPrompt.context.suppressedChunks.length
+            },
+            impact: contextImpact,
+            generation: {
+              content: guard.output,
+              finishReason: generated.finishReason,
+              usage: generated.usage,
+              model: generated.model
+            },
+            parsed,
+            guard,
+            compliance
+          });
+          await recordApiMetric("api.ask", requestStartedAt, {
+            command: "api.ask",
+            durationMs: 0,
+            degraded: generation.summary.failedAttempts > 0,
+            selection: {
+              selectedCount: builtPrompt.context.includedChunks.length,
+              suppressedCount: builtPrompt.context.suppressedChunks.length
+            },
+            safety: {
+              blocked: !(guard.allowed && compliance.compliant),
+              reason: guard.reasons[0] ?? compliance.violations[0] ?? ""
+            }
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const preview = builtPrompt.context.includedChunks
+            .slice(0, 2)
+            .map((chunk, index) => {
+              const source = String(chunk.source ?? `chunk-${index + 1}`);
+              const excerpt = String(chunk.content ?? "").trim().slice(0, 220);
+              return `${index + 1}) [${source}] ${excerpt}`;
+            });
+          const fallbackResponse = [
+            "⚠ NEXUS está en modo degradado (sin proveedor LLM disponible).",
+            "",
+            builtPrompt.context.includedChunks.length
+              ? "Resumen de contexto recuperado:"
+              : "No hay chunks seleccionados para esta consulta.",
+            ...preview
+          ]
+            .filter(Boolean)
+            .join("\n");
 
-        sendJson(response, guard.allowed && compliance.compliant ? 200 : 422, {
-          status: guard.allowed && compliance.compliant ? "ok" : "blocked",
-          provider: generation.provider,
-          fallback: {
-            attempts: generation.attempts,
-            summary: generation.summary
-          },
-          prompt: {
-            language: builtPrompt.language,
-            stats: builtPrompt.context.stats,
-            includedChunks: builtPrompt.context.includedChunks.length,
-            suppressedChunks: builtPrompt.context.suppressedChunks.length
-          },
-          generation: {
-            content: guard.output,
-            finishReason: generated.finishReason,
-            usage: generated.usage,
-            model: generated.model
-          },
-          parsed,
-          guard,
-          compliance
-        });
-        await recordApiMetric("api.ask", requestStartedAt, {
-          command: "api.ask",
-          durationMs: 0,
-          degraded: generation.summary.failedAttempts > 0,
-          selection: {
-            selectedCount: builtPrompt.context.includedChunks.length,
-            suppressedCount: builtPrompt.context.suppressedChunks.length
-          },
-          safety: {
-            blocked: !(guard.allowed && compliance.compliant),
-            reason: guard.reasons[0] ?? compliance.violations[0] ?? ""
-          }
-        });
+          sendJson(response, 200, {
+            status: "degraded",
+            degraded: true,
+            provider: "offline-fallback",
+            prompt: {
+              language: builtPrompt.language,
+              stats: builtPrompt.context.stats,
+              includedChunks: builtPrompt.context.includedChunks.length,
+              suppressedChunks: builtPrompt.context.suppressedChunks.length
+            },
+            context: {
+              rawChunks: requestChunks.length,
+              rawTokens,
+              selectedChunks: builtPrompt.context.includedChunks.length,
+              selectedTokens: builtPrompt.context.stats.usedTokens,
+              suppressedChunks: builtPrompt.context.suppressedChunks.length
+            },
+            impact: contextImpact,
+            generation: {
+              content: fallbackResponse,
+              finishReason: "degraded",
+              usage: {
+                inputTokens: builtPrompt.context.stats.usedTokens,
+                outputTokens: estimateTokenCount(fallbackResponse)
+              },
+              model: "none"
+            },
+            fallback: {
+              attempts: 0,
+              summary: {
+                attemptedProviders: 0,
+                failedAttempts: 0,
+                succeededAfterRetries: false
+              }
+            },
+            error: message
+          });
+          await recordApiMetric("api.ask", requestStartedAt, {
+            command: "api.ask",
+            durationMs: 0,
+            degraded: true,
+            selection: {
+              selectedCount: builtPrompt.context.includedChunks.length,
+              suppressedCount: builtPrompt.context.suppressedChunks.length
+            },
+            safety: {
+              blocked: false,
+              reason: "llm-provider-unavailable"
+            }
+          });
+        }
         return;
       }
 
@@ -803,6 +1548,7 @@ export function createNexusApiServer(options = {}) {
     port,
     server,
     scheduler,
+    syncRuntime,
     registry,
     promptVersionStore,
     driftMonitor,

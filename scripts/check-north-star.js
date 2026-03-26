@@ -35,7 +35,7 @@ function numberOption(value, fallback) {
 }
 
 const argv = process.argv.slice(2);
-const filePathRaw = option(argv, "file", ".lcs/observability.json");
+const filePathRaw = option(argv, "file", "benchmark/north-star-observability.json");
 const filePath = path.resolve(filePathRaw);
 
 const result = await runNorthStarGate({
@@ -60,4 +60,3 @@ if (result.passed) {
   console.error(report);
   process.exitCode = 1;
 }
-
