@@ -71,7 +71,7 @@
   "devDependencies": {
     "@types/node": "^25.5.0",
     "@types/pdf-parse": "^1.1.5",
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.2"
   },
   "dependencies": {
     "pdf-parse": "^2.4.5"
