@@ -16,6 +16,7 @@
     "northstar:check": "node scripts/check-north-star.js",
     "dev:cli": "node src/cli.js",
     "dev:api": "node src/api/server.js",
+    "dev:shell": "node src/cli.js shell --workspace .",
     "eval": "node eval/run.js",
     "eval:legal": "node eval/run.js --suite eval/suites/legal-basics.json --project legal-salta",
     "dist:cli": "node dist/cli.js",

@@ -602,7 +602,8 @@ export function usageText() {
     "  readme   -> generates a learning README from selected context",
     "  recall   -> reads project memory from Engram",
     "  remember -> stores a durable memory note in Engram",
-    "  close    -> stores session-close learnings in Engram"
+    "  close    -> stores session-close learnings in Engram",
+    "  shell    -> opens interactive tabbed Bash-like console"
   ];
 
   return [
@@ -621,6 +622,7 @@ export function usageText() {
     "  node src/cli.js recall [--config <file>] [--project <name>] [--query <text>] [--type <name>] [--scope <name>] [--limit 5] [--memory-backend resilient|engram-only|local-only] [--degraded-recall true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--debug] [--format json|text]",
     "  node src/cli.js remember [--config <file>] --title <text> (--content <text> | --message <text>) [--project <name>] [--type <name>] [--scope <name>] [--topic <key>] [--memory-backend resilient|engram-only|local-only] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--plan-approved true] [--format json|text]",
     "  node src/cli.js close [--config <file>] --summary <text> [--learned <text>] [--next <text>] [--title <text>] [--project <name>] [--type <name>] [--scope <name>] [--memory-backend resilient|engram-only|local-only] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--plan-approved true] [--format json|text]",
+    "  node src/cli.js shell [--project <name>] [--workspace <dir>] [--memory-backend resilient|engram-only|local-only] [--format text|json]",
     "",
     "Input file format:",
     '  { "chunks": [ { "id": "x", "source": "src/file.ts", "kind": "code", "content": "..." } ] }',
@@ -647,6 +649,7 @@ export function usageText() {
     "  recall can return a degraded empty result when Engram is unavailable and degraded mode is enabled.",
     "  --debug exposes score signals, suppression reasons, and recall details for playground debugging.",
     "  recall without --query asks Engram for recent context.",
-    "  remember and close write durable memories into Engram."
+    "  remember and close write durable memories into Engram.",
+    "  shell supports tabs (TAB key), slash commands, persistent history, and command autocompletion."
   ].join("\n");
 }

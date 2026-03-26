@@ -30,6 +30,9 @@ node src/cli.js teach --workspace . --task "Harden auth middleware" --objective 
 # 3) Run API + visual demo
 npm run api:nexus
 # http://127.0.0.1:8787/api/demo
+
+# 4) Open interactive shell (tabs: recall/teach/remember/doctor/select)
+node src/cli.js shell --workspace . --project nexus
 ```
 
 ## What NEXUS does today

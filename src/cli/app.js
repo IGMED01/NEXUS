@@ -40,6 +40,7 @@ import {
 } from "./formatters.js";
 import { runTeachCommand } from "./teach-command.js";
 import { runIngestCommand, formatIngestResultAsText } from "./ingest-command.js";
+import { runShellCommand } from "./shell-command.js";
 import { evaluateGuard, formatGuardResultAsText } from "../guard/guard-engine.js";
 import {
   assertNumberRules,
@@ -127,7 +128,7 @@ import {
  */
 
 /**
- * @typedef {"select" | "teach" | "readme" | "recall" | "remember" | "close" | "doctor" | "init" | "sync-knowledge" | "ingest-security" | "ingest" | "version"} CliCommand
+ * @typedef {"select" | "teach" | "readme" | "recall" | "remember" | "close" | "doctor" | "init" | "sync-knowledge" | "ingest-security" | "ingest" | "version" | "shell"} CliCommand
  */
 
 /**
@@ -760,7 +761,8 @@ function isSupportedCommand(command) {
     command === "sync-knowledge" ||
     command === "ingest-security" ||
     command === "ingest" ||
-    command === "version"
+    command === "version" ||
+    command === "shell"
   );
 }
 
@@ -779,7 +781,7 @@ function applyConfigDefaults(command, rawOptions, loadedConfig) {
   }
 
   if (!options.workspace && !options.input && config.workspace) {
-    if (command === "select" || command === "teach" || command === "readme") {
+    if (command === "select" || command === "teach" || command === "readme" || command === "shell") {
       options.workspace = config.workspace;
     }
   }
@@ -1054,7 +1056,8 @@ export async function runCli(argv, dependencies = {}) {
     command === "close" ||
     command === "sync-knowledge" ||
     command === "ingest-security" ||
-    command === "ingest"
+    command === "ingest" ||
+    command === "shell"
       ? "text"
       : "json";
   const format =
@@ -1538,6 +1541,19 @@ export async function runCli(argv, dependencies = {}) {
               }
             )
     };
+  }
+
+  if (command === "shell") {
+    const shellResult = await runShellCommand({
+      options,
+      runCli: async (childArgv) => runCli(childArgv, dependencies),
+      usageText,
+      cwd: process.cwd()
+    });
+    const metric = buildCommandMetric("shell", startedAt);
+    await safeRecordCommandMetric(metric);
+
+    return shellResult;
   }
 
   const source = await loadChunkSource(command, options, loadedConfig);

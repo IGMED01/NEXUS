@@ -8,6 +8,11 @@ import { promisify } from "node:util";
 
 import { buildLearningReadme } from "../src/analysis/readme-generator.js";
 import { runCli } from "../src/cli/app.js";
+import {
+  createShellState,
+  resolveShellInput,
+  tokenizeShellInput
+} from "../src/cli/shell-command.js";
 import { defaultProjectConfig, parseProjectConfig } from "../src/contracts/config-contracts.js";
 import { parseChunkFile } from "../src/contracts/context-contracts.js";
 import { loadWorkspaceChunks } from "../src/io/workspace-chunks.js";
@@ -1172,7 +1177,8 @@ run("cli help documents all supported commands including doctor init sync-knowle
     "readme",
     "recall",
     "remember",
-    "close"
+    "close",
+    "shell"
   ]) {
     assert.match(result.stdout, new RegExp(`node src/cli\\.js ${command}`));
   }
@@ -1188,6 +1194,10 @@ run("cli help documents all supported commands including doctor init sync-knowle
   assert.match(
     result.stdout,
     /ingest-security\s+-> converts Prowler findings JSON into LCS chunk JSON/
+  );
+  assert.match(
+    result.stdout,
+    /shell\s+-> opens interactive tabbed Bash-like console/
   );
   assert.match(result.stdout, /version\s+-> prints CLI version/);
 });
@@ -1207,6 +1217,53 @@ run("command-level -h shows usage instead of failing positional parse", async ()
 
   assert.equal(result.exitCode, 0);
   assert.match(result.stdout, /node src\/cli\.js teach/);
+});
+
+run("NEXUS shell tokenizer keeps quoted segments and escapes", async () => {
+  const tokens = tokenizeShellInput('/teach --task "auth validation" --objective "request \\"boundary\\""');
+
+  assert.deepEqual(tokens, [
+    "/teach",
+    "--task",
+    "auth validation",
+    "--objective",
+    'request "boundary"'
+  ]);
+});
+
+run("NEXUS shell resolves plain input using active tab and session defaults", async () => {
+  const state = createShellState({
+    session: {
+      project: "nexus",
+      workspace: ".",
+      memoryBackend: "resilient",
+      format: "text"
+    },
+    activeTab: "recall"
+  });
+  const action = resolveShellInput("jwt middleware order", state);
+
+  assert.equal(action.kind, "exec");
+  assert.deepEqual(action.argv.slice(0, 4), ["recall", "--query", "jwt middleware order", "--memory-backend"]);
+  assert.equal(action.argv.includes("--project"), true);
+  assert.equal(action.argv.includes("nexus"), true);
+});
+
+run("NEXUS shell supports tab switching and settings updates", async () => {
+  const state = createShellState({
+    activeTab: "recall"
+  });
+  const tabAction = resolveShellInput("/tab teach", state);
+  const setAction = resolveShellInput("/set backend local-only", state);
+  const commandAction = resolveShellInput("/remember harden auth docs", state);
+
+  assert.equal(tabAction.kind, "info");
+  assert.equal(state.activeTab, "teach");
+  assert.equal(setAction.kind, "info");
+  assert.equal(state.session.memoryBackend, "local-only");
+  assert.equal(commandAction.kind, "exec");
+  assert.equal(commandAction.argv[0], "remember");
+  assert.equal(commandAction.argv.includes("--format"), true);
 });
 
 run("cli version command and aliases return the package version", async () => {
