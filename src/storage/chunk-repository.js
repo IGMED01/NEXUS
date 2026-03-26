@@ -433,8 +433,12 @@ export function createChunkRepository(options) {
    * @param {{ id: string, source?: string, kind?: string, content: string, metadata?: Record<string, unknown> }} chunk
    */
   async function upsertChunk(chunk) {
-    if (!chunk?.id || !chunk?.content) {
-      throw new Error("chunk id and content are required");
+    if (!chunk || typeof chunk.id !== "string" || chunk.id.trim() === "") {
+      throw new Error("chunk id is required");
+    }
+
+    if (typeof chunk.content !== "string") {
+      throw new Error("chunk content must be a string");
     }
 
     const current = await readChunks(filePath);
