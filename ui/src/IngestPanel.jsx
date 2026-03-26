@@ -317,10 +317,10 @@ export default function IngestPanel({ onClose, onIngested }) {
           {phase === 'ready' && (
             <button onClick={ingest} style={{ flex:1, padding:'9px', background:'var(--accent)',
               border:'1px solid transparent', fontSize:'12px', fontWeight:700, fontFamily:'inherit',
-              letterSpacing:'0.3px', color:'#fff', cursor:'pointer', transition:'all 0.15s',
+              letterSpacing:'0.3px', color:'var(--accent-contrast, #fff)', cursor:'pointer', transition:'all 0.15s',
               display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}
-              onMouseEnter={e => e.currentTarget.style.background='#6d28d9'}
-              onMouseLeave={e => e.currentTarget.style.background='var(--accent)'}>
+              onMouseEnter={e => e.currentTarget.style.opacity='0.85'}
+              onMouseLeave={e => e.currentTarget.style.opacity='1'}>
               <span>📥</span> Ingest al Knowledge Base
             </button>
           )}
