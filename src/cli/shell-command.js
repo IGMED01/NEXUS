@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 const execFile = promisify(execFileCallback);
 
 /** @typedef {"recall" | "teach" | "remember" | "doctor" | "select"} ShellTabId */
-/** @typedef {"resilient" | "engram-only" | "local-only"} MemoryBackendMode */
+/** @typedef {"resilient" | "local-only"} MemoryBackendMode */
 /** @typedef {"text" | "json"} OutputFormat */
 /** @typedef {"auto" | "safe"} ShellRenderMode */
 /** @typedef {"initial" | "navigation" | "layout" | "manual-clear" | "notice" | "command"} ShellRenderReason */
@@ -44,7 +44,7 @@ const execFile = promisify(execFileCallback);
  * }} ShellState
  */
 
-/** @typedef {"nexus" | "nexus-recall" | "nexus-teach" | "nexus-remember" | "nexus-select" | "nexus-doctor" | "nexus-version" | "nexus-help" | "skills" | "skill-actions"} ShellMenuSection */
+/** @typedef {"nexus" | "nexus-recall" | "nexus-teach" | "nexus-remember" | "nexus-select" | "nexus-memory" | "nexus-doctor" | "nexus-version" | "nexus-help" | "skills" | "skill-actions"} ShellMenuSection */
 
 /**
  * @typedef {{
@@ -280,7 +280,7 @@ function renderFramedBox(lines, options = {}) {
  * @returns {MemoryBackendMode}
  */
 function normalizeMemoryBackend(value) {
-  if (value === "engram-only" || value === "local-only") {
+  if (value === "local-only") {
     return value;
   }
 
@@ -633,6 +633,12 @@ function buildNexusMenuItems(state) {
       action: { type: "open-section", section: "nexus-select" }
     },
     {
+      id: "open-memory",
+      label: "Abrir Memory Hygiene →",
+      detail: "Stats, doctor, prune y compact de memoria",
+      action: { type: "open-section", section: "nexus-memory" }
+    },
+    {
       id: "run-doctor",
       label: "Ejecutar Doctor ahora",
       detail: "Diagnostico completo del entorno",
@@ -831,6 +837,81 @@ function buildNexusSelectMenuItems(state) {
         type: "run-cli",
         argv: applySessionDefaults(["select", "--focus", "shell menu skills manager", "--debug"], state),
         rawLine: "/select shell menu skills manager --debug"
+      }
+    }
+  ];
+}
+
+/**
+ * @param {ShellState} state
+ * @returns {ShellMenuItem[]}
+ */
+function buildNexusMemoryMenuItems(state) {
+  return [
+    {
+      id: "memory-back",
+      label: "← Volver a NEXUS",
+      detail: "Menu principal",
+      action: { type: "open-section", section: "nexus" }
+    },
+    {
+      id: "memory-stats-text",
+      label: "Ejecutar memory-stats (text)",
+      detail: "Salud, ruido y duplicados de memoria",
+      action: {
+        type: "run-cli",
+        argv: applySessionDefaults(["memory-stats", "--format", "text"], state),
+        rawLine: "/memory-stats --format text"
+      }
+    },
+    {
+      id: "memory-stats-json",
+      label: "Ejecutar memory-stats (json)",
+      detail: "Salida estructurada para debug",
+      action: {
+        type: "run-cli",
+        argv: applySessionDefaults(["memory-stats", "--format", "json"], state),
+        rawLine: "/memory-stats --format json"
+      }
+    },
+    {
+      id: "doctor-memory-text",
+      label: "Ejecutar doctor-memory (text)",
+      detail: "Auditoria de higiene y cuarentena",
+      action: {
+        type: "run-cli",
+        argv: applySessionDefaults(["doctor-memory", "--format", "text"], state),
+        rawLine: "/doctor-memory --format text"
+      }
+    },
+    {
+      id: "doctor-memory-json",
+      label: "Ejecutar doctor-memory (json)",
+      detail: "Auditoria estructurada de memoria",
+      action: {
+        type: "run-cli",
+        argv: applySessionDefaults(["doctor-memory", "--format", "json"], state),
+        rawLine: "/doctor-memory --format json"
+      }
+    },
+    {
+      id: "prune-memory-dry-run",
+      label: "Ejecutar prune-memory (dry-run)",
+      detail: "Ver candidatos a cuarentena sin escribir",
+      action: {
+        type: "run-cli",
+        argv: applySessionDefaults(["prune-memory", "--dry-run", "true", "--format", "text"], state),
+        rawLine: "/prune-memory --dry-run true --format text"
+      }
+    },
+    {
+      id: "compact-memory-dry-run",
+      label: "Ejecutar compact-memory (dry-run)",
+      detail: "Detectar grupos compactables sin aplicar",
+      action: {
+        type: "run-cli",
+        argv: applySessionDefaults(["compact-memory", "--dry-run", "true", "--format", "text"], state),
+        rawLine: "/compact-memory --dry-run true --format text"
       }
     }
   ];
@@ -1143,7 +1224,7 @@ function buildSkillActionMenuItems(menu) {
  * @param {ShellState} state
  * @returns {ShellMenuItem[]}
  */
-function getShellMenuItems(menu, state) {
+export function getShellMenuItems(menu, state) {
   switch (menu.section) {
     case "skills":
       return buildSkillsMenuItems(menu);
@@ -1157,6 +1238,8 @@ function getShellMenuItems(menu, state) {
       return buildNexusRememberMenuItems(state);
     case "nexus-select":
       return buildNexusSelectMenuItems(state);
+    case "nexus-memory":
+      return buildNexusMemoryMenuItems(state);
     case "nexus-doctor":
       return buildNexusDoctorMenuItems(state);
     case "nexus-version":
@@ -1210,6 +1293,8 @@ function formatMenuSectionLabel(section) {
       return "NEXUS • REMEMBER";
     case "nexus-select":
       return "NEXUS • SELECT";
+    case "nexus-memory":
+      return "NEXUS • MEMORY";
     case "nexus-doctor":
       return "NEXUS • DOCTOR";
     case "nexus-version":
@@ -1251,10 +1336,12 @@ function renderShellMenu(menu, state, options = {}) {
             ? "submenu teach: task/objective y ejemplos"
             : menu.section === "nexus-remember"
               ? "submenu remember: guardar decisiones durables"
-              : menu.section === "nexus-select"
-                ? "submenu select: ranking de contexto y debug"
-                : menu.section === "nexus-doctor"
-                  ? "submenu doctor: health checks text/json"
+                : menu.section === "nexus-select"
+                  ? "submenu select: ranking de contexto y debug"
+                  : menu.section === "nexus-memory"
+                    ? "submenu memory: higiene, stats y compactacion"
+                  : menu.section === "nexus-doctor"
+                    ? "submenu doctor: health checks text/json"
                   : menu.section === "nexus-version"
                     ? "submenu version: info text/json"
                     : menu.section === "nexus-help"
@@ -1281,6 +1368,11 @@ function renderShellMenu(menu, state, options = {}) {
       0,
       ansi(
         "commands: version init doctor sync-knowledge ingest-security select teach readme recall remember close shell",
+        "38;5;244",
+        color
+      ),
+      ansi(
+        "commands+: doctor-memory memory-stats prune-memory compact-memory",
         "38;5;244",
         color
       )
@@ -1510,9 +1602,7 @@ function renderShellSessionLine(state, options = {}) {
 function renderShellBanner(state, options = {}) {
   const color = options.color ?? true;
   const memoryMode =
-    state.session.memoryBackend === "engram-only"
-      ? "ENGRAM"
-      : state.session.memoryBackend === "local-only"
+    state.session.memoryBackend === "local-only"
         ? "LOCAL"
         : "RESILIENT";
   const health = `${ansi("●", "1;38;5;118", color)} ${ansi("ONLINE", "1;38;5;118", color)}`;
@@ -1694,18 +1784,26 @@ export function resolveShellInput(rawLine, state) {
         return { kind: "menu", open: true, section: "skills" };
       }
 
+      if (mode === "memory") {
+        return { kind: "menu", open: true, section: "nexus-memory" };
+      }
+
       if (mode === "nexus") {
         return { kind: "menu", open: true, section: "nexus" };
       }
 
       return {
         kind: "error",
-        message: "Use /menu [toggle|open|close|skills|nexus]."
+        message: "Use /menu [toggle|open|close|skills|memory|nexus]."
       };
     }
 
     if (command === "skills") {
       return { kind: "menu", open: true, section: "skills" };
+    }
+
+    if (command === "memory") {
+      return { kind: "menu", open: true, section: "nexus-memory" };
     }
 
     if (command === "nexus") {
@@ -1864,11 +1962,12 @@ export function renderShellHelp(state) {
     `- /tab <${tabNames}>  switch active tab`,
     "- /set project <name>",
     "- /set workspace <dir>",
-    "- /set backend <resilient|engram-only|local-only>",
+    "- /set backend <resilient|local-only>",
     "- /set format <text|json>",
     "- /status             show live shell status",
-    "- /menu [mode]        toggle/open/close skills menu",
+    "- /menu [mode]        toggle/open/close shell menu",
     "- /skills             open skills manager section",
+    "- /memory             open memory hygiene section",
     "- /nexus              open nexus options section",
     "- /clear              clear terminal and redraw dashboard",
     "- /recall <query>     run recall quickly",
@@ -2097,15 +2196,16 @@ export async function runShellCommand(input) {
     "/set project ",
     "/set workspace ",
     "/set backend resilient",
-    "/set backend engram-only",
     "/set backend local-only",
     "/set format text",
     "/set format json",
     "/status",
     "/menu",
     "/menu skills",
+    "/menu memory",
     "/menu nexus",
     "/skills",
+    "/memory",
     "/nexus",
     "/clear",
     "/recall ",

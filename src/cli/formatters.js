@@ -39,7 +39,10 @@
  */
 
 function originFromSource(source = "") {
-  return String(source).startsWith("engram://") ? "engram" : "workspace";
+  const normalized = String(source);
+  return normalized.startsWith("engram://") || normalized.startsWith("memory://")
+    ? "memory"
+    : "workspace";
 }
 
 /**
@@ -381,7 +384,7 @@ export function formatMemoryRecallAsText(result, options = {}) {
     `Type filter: ${result.type || "none"}`,
     `Scope: ${result.scope || "none"}`,
     `Limit: ${result.limit ?? "default"}`,
-    `Provider: ${result.provider || "engram"}`,
+    `Provider: ${result.provider || "memory"}`,
     `Data dir: ${result.dataDir || "unknown"}`,
     `Fallback file: ${result.filePath || "none"}`,
     `Degraded: ${result.degraded ? "yes" : "no"}`,
@@ -430,13 +433,16 @@ export function formatMemoryRecallAsText(result, options = {}) {
  *   dataDir?: string,
  *   filePath?: string,
  *   provider?: string,
+ *   memoryStatus?: string,
+ *   reviewStatus?: string,
+ *   reasons?: string[],
  *   warning?: string,
  *   error?: string
  * }} result
  * @param {string} heading
  */
 export function formatMemoryWriteAsText(result, heading) {
-  const provider = result.provider || "engram";
+  const provider = result.provider || "memory";
   const lines = [
     heading,
     `Title: ${result.title}`,
@@ -444,11 +450,19 @@ export function formatMemoryWriteAsText(result, heading) {
     `Type: ${result.type || "none"}`,
     `Scope: ${result.scope || "none"}`,
     `Topic: ${result.topic || "none"}`,
+    `Memory status: ${result.memoryStatus || "accepted"}`,
+    `Review status: ${result.reviewStatus || "accepted"}`,
     `Provider: ${provider}`,
     `Data dir: ${result.dataDir || "unknown"}`,
     `Fallback file: ${result.filePath || "none"}`,
     "",
-    `${provider === "local" ? "Local memory response:" : "Engram response:"}`
+    provider === "local"
+      ? "Local memory response:"
+      : provider === "quarantine"
+        ? "Quarantine response:"
+        : provider === "engram-battery"
+          ? "External battery response:"
+          : "Memory runtime response:"
   ];
 
   lines.push(result.stdout || "- no output");
@@ -456,6 +470,10 @@ export function formatMemoryWriteAsText(result, heading) {
   if (result.warning) {
     lines.push("");
     lines.push(`Warning: ${result.warning}`);
+  }
+
+  if (Array.isArray(result.reasons) && result.reasons.length) {
+    lines.push(`Reasons: ${result.reasons.join(", ")}`);
   }
 
   if (result.error) {
@@ -494,6 +512,256 @@ export function formatDoctorResultAsText(result) {
 
     if (check.fix) {
       lines.push(`  fix: ${check.fix}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * @param {{
+ *   project?: string,
+ *   baseDir: string,
+ *   summary: {
+ *     total: number,
+ *     accepted: number,
+ *     candidate: number,
+ *     healthy: number,
+ *     protected: number,
+ *     duplicates: number,
+ *     testNoise: number,
+ *     lowSignal: number,
+ *     quarantineCandidates: number
+ *   },
+ *   entries: Array<{
+ *     id: string,
+ *     title: string,
+ *     type: string,
+ *     reviewStatus: string,
+ *     protected: boolean,
+ *     healthScore: number,
+ *     reasons: string[]
+ *   }>
+ * }} result
+ */
+export function formatMemoryDoctorAsText(result) {
+  const lines = [
+    "Memory doctor summary:",
+    `- project: ${result.project || "all"}`,
+    `- base dir: ${result.baseDir}`,
+    `- total: ${result.summary.total}`,
+    `- accepted: ${result.summary.accepted}`,
+    `- candidates: ${result.summary.candidate}`,
+    `- quarantine candidates: ${result.summary.quarantineCandidates}`,
+    `- protected: ${result.summary.protected}`,
+    `- duplicates: ${result.summary.duplicates}`,
+    `- test noise: ${result.summary.testNoise}`,
+    `- low signal: ${result.summary.lowSignal}`,
+    "",
+    "Entries:"
+  ];
+
+  if (!result.entries.length) {
+    lines.push("- none");
+    return lines.join("\n");
+  }
+
+  for (const entry of result.entries.slice(0, 12)) {
+    lines.push(
+      `- [${entry.reviewStatus}] ${entry.title} (${entry.type || "memory"}) | health=${entry.healthScore.toFixed(3)}${entry.protected ? " | protected" : ""}`
+    );
+
+    if (entry.reasons.length) {
+      lines.push(`  reasons: ${entry.reasons.join(", ")}`);
+    }
+  }
+
+  if (result.entries.length > 12) {
+    lines.push(`- ... ${result.entries.length - 12} more entries`);
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * @param {{
+ *   project?: string,
+ *   baseDir: string,
+ *   quarantineBaseDir: string,
+ *   dryRun: boolean,
+ *   applied: boolean,
+ *   quarantinePaths?: string[],
+ *   summary: {
+ *     totalBefore: number,
+ *     candidates: number,
+ *     moved: number,
+ *     kept: number,
+ *     protectedSkipped: number
+ *   },
+ *   candidates: Array<{
+ *     title: string,
+ *     type: string,
+ *     reasons: string[],
+ *     filePath: string
+ *   }>
+ * }} result
+ */
+export function formatMemoryPruneAsText(result) {
+  const lines = [
+    result.applied ? "Memory prune applied:" : "Memory prune dry-run:",
+    `- project: ${result.project || "all"}`,
+    `- base dir: ${result.baseDir}`,
+    `- quarantine dir: ${result.quarantineBaseDir}`,
+    `- total before: ${result.summary.totalBefore}`,
+    `- candidates: ${result.summary.candidates}`,
+    `- moved: ${result.summary.moved}`,
+    `- kept: ${result.summary.kept}`,
+    `- protected skipped: ${result.summary.protectedSkipped}`,
+    "",
+    "Candidates:"
+  ];
+
+  if (!result.candidates.length) {
+    lines.push("- none");
+  } else {
+    for (const candidate of result.candidates.slice(0, 12)) {
+      lines.push(`- ${candidate.title} (${candidate.type || "memory"})`);
+      lines.push(`  reasons: ${candidate.reasons.join(", ") || "none"}`);
+      lines.push(`  file: ${candidate.filePath}`);
+    }
+  }
+
+  if (Array.isArray(result.quarantinePaths) && result.quarantinePaths.length) {
+    lines.push("");
+    lines.push("Quarantine paths:");
+    for (const target of result.quarantinePaths) {
+      lines.push(`- ${target}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * @param {{
+ *   project?: string,
+ *   baseDir: string,
+ *   summary: {
+ *     total: number,
+ *     accepted: number,
+ *     candidate: number,
+ *     healthy: number,
+ *     protected: number,
+ *     duplicates: number,
+ *     testNoise: number,
+ *     lowSignal: number,
+ *     quarantineCandidates: number
+ *   },
+ *   metrics: {
+ *     averageHealthScore: number,
+ *     averageSignalScore: number,
+ *     averageDuplicateScore: number,
+ *     durableCount: number,
+ *     reviewableCount: number,
+ *     disposableCount: number,
+ *     recallableDurableCount: number,
+ *     candidateRate: number,
+ *     noiseRate: number,
+ *     duplicateRate: number,
+ *     healthyRate: number,
+ *     quarantineRate: number
+ *   }
+ * }} result
+ */
+export function formatMemoryStatsAsText(result) {
+  return [
+    "Memory stats:",
+    `- project: ${result.project || "all"}`,
+    `- base dir: ${result.baseDir}`,
+    `- total: ${result.summary.total}`,
+    `- durable: ${result.metrics.durableCount}`,
+    `- reviewable: ${result.metrics.reviewableCount}`,
+    `- disposable: ${result.metrics.disposableCount}`,
+    `- recallable durable: ${result.metrics.recallableDurableCount}`,
+    `- avg health: ${result.metrics.averageHealthScore.toFixed(3)}`,
+    `- avg signal: ${result.metrics.averageSignalScore.toFixed(3)}`,
+    `- avg duplicate: ${result.metrics.averageDuplicateScore.toFixed(3)}`,
+    `- candidate rate: ${result.metrics.candidateRate.toFixed(3)}`,
+    `- noise rate: ${result.metrics.noiseRate.toFixed(3)}`,
+    `- duplicate rate: ${result.metrics.duplicateRate.toFixed(3)}`,
+    `- healthy rate: ${result.metrics.healthyRate.toFixed(3)}`,
+    `- quarantine rate: ${result.metrics.quarantineRate.toFixed(3)}`
+  ].join("\n");
+}
+
+/**
+ * @param {{
+ *   project?: string,
+ *   topic?: string,
+ *   baseDir: string,
+ *   quarantineBaseDir: string,
+ *   dryRun: boolean,
+ *   applied: boolean,
+ *   quarantinePaths?: string[],
+ *   writtenFiles?: string[],
+ *   summary: {
+ *     groups: number,
+ *     entriesToCompact: number,
+ *     created: number,
+ *     moved: number,
+ *     kept: number,
+ *     topicFilterApplied: boolean
+ *   },
+ *   groups: Array<{
+ *     title: string,
+ *     topic: string,
+ *     compactedType: string,
+ *     count: number,
+ *     sourceTitles: string[],
+ *     filePath: string
+ *   }>
+ * }} result
+ */
+export function formatMemoryCompactAsText(result) {
+  const lines = [
+    result.applied ? "Memory compaction applied:" : "Memory compaction dry-run:",
+    `- project: ${result.project || "all"}`,
+    `- topic: ${result.topic || "all"}`,
+    `- base dir: ${result.baseDir}`,
+    `- quarantine dir: ${result.quarantineBaseDir}`,
+    `- groups: ${result.summary.groups}`,
+    `- entries to compact: ${result.summary.entriesToCompact}`,
+    `- created: ${result.summary.created}`,
+    `- moved: ${result.summary.moved}`,
+    `- kept: ${result.summary.kept}`,
+    "",
+    "Groups:"
+  ];
+
+  if (!result.groups.length) {
+    lines.push("- none");
+  } else {
+    for (const group of result.groups.slice(0, 12)) {
+      lines.push(`- ${group.title} (${group.compactedType}) | count=${group.count}`);
+      lines.push(`  topic: ${group.topic || "none"}`);
+      lines.push(`  sources: ${group.sourceTitles.join(" | ") || "none"}`);
+      lines.push(`  file: ${group.filePath}`);
+    }
+  }
+
+  if (Array.isArray(result.writtenFiles) && result.writtenFiles.length) {
+    lines.push("");
+    lines.push("Written files:");
+    for (const file of result.writtenFiles) {
+      lines.push(`- ${file}`);
+    }
+  }
+
+  if (Array.isArray(result.quarantinePaths) && result.quarantinePaths.length) {
+    lines.push("");
+    lines.push("Quarantine paths:");
+    for (const target of result.quarantinePaths) {
+      lines.push(`- ${target}`);
     }
   }
 
@@ -593,16 +861,20 @@ export function formatNotionSyncAsText(result) {
 export function usageText() {
   const commandCatalog = [
     "  version  -> prints CLI version",
-    "  doctor   -> checks runtime, config, workspace, and Engram health",
+    "  doctor   -> checks runtime, config, workspace, semantic tier, and external battery health",
+    "  doctor-memory -> audits local memory quality and quarantine candidates",
+    "  memory-stats -> reports memory health, noise, duplicate, and durable recall metrics",
+    "  prune-memory -> moves suspicious local memories into quarantine",
+    "  compact-memory -> consolidates reviewable memory clusters into compact entries",
     "  init     -> creates learning-context.config.json with safe defaults",
     "  sync-knowledge -> appends a durable learning note into a Notion page",
     "  ingest-security -> converts Prowler findings JSON into LCS chunk JSON",
     "  select   -> ranks and selects high-value context chunks",
     "  teach    -> builds a teaching packet (with automatic recall by default)",
     "  readme   -> generates a learning README from selected context",
-    "  recall   -> reads project memory from Engram",
-    "  remember -> stores a durable memory note in Engram",
-    "  close    -> stores session-close learnings in Engram",
+    "  recall   -> reads project memory through the memory runtime",
+    "  remember -> stores a durable memory note through the memory runtime",
+    "  close    -> stores session-close learnings through the memory runtime",
     "  shell    -> opens interactive tabbed Bash-like console"
   ];
 
@@ -613,23 +885,31 @@ export function usageText() {
     "Usage:",
     "  node src/cli.js version [--format json|text]",
     "  node src/cli.js doctor [--config <file>] [--format json|text]",
+    "  node src/cli.js doctor-memory [--config <file>] [--project <name>] [--memory-base-dir <dir>] [--format json|text]",
+    "  node src/cli.js memory-stats [--config <file>] [--project <name>] [--memory-base-dir <dir>] [--format json|text]",
+    "  node src/cli.js prune-memory [--config <file>] [--project <name>] [--memory-base-dir <dir>] [--memory-quarantine-dir <dir>] [--apply true|false] [--plan-approved true] [--format json|text]",
+    "  node src/cli.js compact-memory [--config <file>] [--project <name>] [--topic <key>] [--memory-base-dir <dir>] [--memory-quarantine-dir <dir>] [--apply true|false] [--plan-approved true] [--format json|text]",
     "  node src/cli.js init [--config <file>] [--force true|false] [--format json|text]",
     "  node src/cli.js sync-knowledge [--config <file>] --title <text> (--content <text> | --message <text>) [--project <name>] [--source <text>] [--tags a,b] [--notion-token <token>] [--notion-page-id <id>] [--plan-approved true] [--format json|text]",
     "  node src/cli.js ingest-security --input <prowler.json> [--status-filter all|non-pass|fail] [--max-findings 200] [--output <file>] [--plan-approved true] [--format json|text]",
     "  node src/cli.js select [--config <file>] (--input <file> | --workspace <dir>) --focus <text> [--token-budget 350] [--max-chunks 6] [--min-score 0.25] [--debug] [--format json|text]",
-    "  node src/cli.js teach [--config <file>] (--input <file> | --workspace <dir>) --task <text> --objective <text> [--changed-files a,b] [--project <name>] [--recall-query <text>] [--memory-limit 3] [--memory-type <name>] [--memory-scope <name>] [--memory-backend resilient|engram-only|local-only] [--auto-recall true|false] [--no-recall] [--strict-recall true|false] [--auto-remember true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--token-budget 350] [--max-chunks 6] [--min-score 0.25] [--debug] [--format json|text]",
+    "  node src/cli.js teach [--config <file>] (--input <file> | --workspace <dir>) --task <text> --objective <text> [--changed-files a,b] [--project <name>] [--recall-query <text>] [--memory-limit 3] [--memory-type <name>] [--memory-scope <name>] [--memory-backend resilient|local-only] [--auto-recall true|false] [--no-recall] [--strict-recall true|false] [--auto-remember true|false] [--external-battery true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--token-budget 350] [--max-chunks 6] [--min-score 0.25] [--debug] [--format json|text]",
     "  node src/cli.js readme [--config <file>] [--workspace <dir>] [--input <file>] [--focus <text>] [--task <text>] [--objective <text>] [--title <text>] [--output <file>] [--plan-approved true] [--format json|text]",
-    "  node src/cli.js recall [--config <file>] [--project <name>] [--query <text>] [--type <name>] [--scope <name>] [--limit 5] [--memory-backend resilient|engram-only|local-only] [--degraded-recall true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--debug] [--format json|text]",
-    "  node src/cli.js remember [--config <file>] --title <text> (--content <text> | --message <text>) [--project <name>] [--type <name>] [--scope <name>] [--topic <key>] [--memory-backend resilient|engram-only|local-only] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--plan-approved true] [--format json|text]",
-    "  node src/cli.js close [--config <file>] --summary <text> [--learned <text>] [--next <text>] [--title <text>] [--project <name>] [--type <name>] [--scope <name>] [--memory-backend resilient|engram-only|local-only] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--plan-approved true] [--format json|text]",
-    "  node src/cli.js shell [--project <name>] [--workspace <dir>] [--memory-backend resilient|engram-only|local-only] [--format text|json]",
+    "  node src/cli.js recall [--config <file>] [--project <name>] [--query <text>] [--type <name>] [--scope <name>] [--limit 5] [--memory-backend resilient|local-only] [--degraded-recall true|false] [--external-battery true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--debug] [--format json|text]",
+    "  node src/cli.js remember [--config <file>] --title <text> (--content <text> | --message <text>) [--project <name>] [--type <name>] [--scope <name>] [--topic <key>] [--memory-backend resilient|local-only] [--external-battery true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--plan-approved true] [--format json|text]",
+    "  node src/cli.js close [--config <file>] --summary <text> [--learned <text>] [--next <text>] [--title <text>] [--project <name>] [--type <name>] [--scope <name>] [--memory-backend resilient|local-only] [--external-battery true|false] [--engram-bin <file>] [--engram-data-dir <dir>] [--local-memory-fallback true|false] [--memory-fallback-file <file>] [--plan-approved true] [--format json|text]",
+    "  node src/cli.js shell [--project <name>] [--workspace <dir>] [--memory-backend resilient|local-only] [--format text|json]",
     "",
     "Input file format:",
     '  { "chunks": [ { "id": "x", "source": "src/file.ts", "kind": "code", "content": "..." } ] }',
     "",
     "Notes:",
     "  --version and -v also print the CLI version.",
-    "  doctor validates Node.js, Git, config, workspace, and Engram availability.",
+    "  doctor validates Node.js, Git, config, workspace, Ruflo semantic tier, local memory, and optional external battery availability.",
+    "  doctor-memory audits local durable memory, flags duplicates/test noise, and suggests quarantine.",
+    "  memory-stats computes health/noise/duplicate metrics for the active memory store.",
+    "  prune-memory defaults to dry-run and never deletes silently; --apply moves candidates into .lcs/memory-quarantine.",
+    "  compact-memory defaults to dry-run and moves superseded source memories into quarantine when applied.",
     "  init creates learning-context.config.json with stable defaults for this repo.",
     "  sync-knowledge appends heading + metadata + markdown content blocks (headings/lists/paragraphs) into your Notion page.",
     "  sync-knowledge can read NOTION_TOKEN / NOTION_API_KEY and NOTION_PARENT_PAGE_ID from env if flags are omitted.",
@@ -637,19 +917,20 @@ export function usageText() {
     "  --workspace scans the local repository and builds chunks automatically.",
     "  learning-context.config.json is loaded automatically when present.",
     "  readme defaults to --workspace . when no input source is provided.",
-    "  teach recalls Engram memories automatically unless you pass --no-recall.",
+    "  teach recalls durable memory automatically unless you pass --no-recall.",
     "  auto recall can be disabled globally with memory.autoRecall or per command with --auto-recall false.",
     "  auto remember can be enabled with --auto-remember true or memory.autoRemember=true.",
-    "  memory backend defaults to resilient (Engram primary + local fallback), configurable with memory.backend or --memory-backend.",
+    "  memory backend defaults to resilient (Ruflo semantic tier + local fallback), configurable with memory.backend or --memory-backend.",
+    "  Engram is treated as an optional external battery only; use --external-battery false to disable that contingency tier.",
     "  auto remember always sanitizes sensitive paths and redacts secret-like fragments before save.",
     "  teach now tries multiple smarter recall queries before giving up.",
     "  safety gate can enforce write-plan approval (--plan-approved true) and scope limits from config.safety.",
     "  safety gate can also block oversized token budgets above config.safety.maxTokenBudget.",
     "  safety gate can require explicit focus for workspace scans and block weak-focus debug traces.",
-    "  recall can return a degraded empty result when Engram is unavailable and degraded mode is enabled.",
+    "  recall can return a degraded result when semantic/external memory tiers are unavailable and degraded mode is enabled.",
     "  --debug exposes score signals, suppression reasons, and recall details for playground debugging.",
-    "  recall without --query asks Engram for recent context.",
-    "  remember and close write durable memories into Engram.",
+    "  recall without --query asks the memory runtime for recent context.",
+    "  remember and close write durable memories through the configured memory runtime.",
     "  shell supports tabs (TAB key), slash commands, persistent history, and command autocompletion."
   ].join("\n");
 }

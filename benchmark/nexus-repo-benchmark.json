@@ -1,0 +1,71 @@
+{
+  "_comment": "NEXUS repo self-benchmark cases. Tests structural grounding and symbol-aware scoring on the NEXUS codebase itself. Run with: node benchmark/run-nexus-comparison.js --file benchmark/nexus-repo-benchmark.json",
+  "cases": [
+    {
+      "name": "nexus repo — noise-canceler structural grounding selects scorer over logs",
+      "input": {
+        "workspace": ".",
+        "task": "Improve structural scoring in noise-canceler",
+        "objective": "Add import/export signal to chunk ranking so structurally connected chunks rank higher",
+        "changedFiles": ["src/context/noise-canceler.js", "src/processing/symbol-extractor.js"],
+        "project": "learning-context-system",
+        "noRecall": true,
+        "tokenBudget": 400,
+        "maxChunks": 5
+      },
+      "provider": { "memories": [] },
+      "expectations": {
+        "codeFocus": "src/context/noise-canceler.js",
+        "relatedTest": "test/noise-canceler.test.js",
+        "excludedSources": [],
+        "memoryRecallStatus": "disabled",
+        "selectedMemoryChunks": 0,
+        "suppressedMemoryChunks": 0
+      }
+    },
+    {
+      "name": "nexus repo — code gate focus selects guard modules over unrelated specs",
+      "input": {
+        "workspace": ".",
+        "task": "Implement Code Gate v1",
+        "objective": "Run typecheck and build gate before accepting generated code",
+        "changedFiles": ["src/guard/code-gate.js", "src/guard/code-gate-parser.js"],
+        "project": "learning-context-system",
+        "noRecall": true,
+        "tokenBudget": 450,
+        "maxChunks": 5
+      },
+      "provider": { "memories": [] },
+      "expectations": {
+        "codeFocus": "src/guard/code-gate.js",
+        "relatedTest": "test/noise-canceler.test.js",
+        "excludedSources": [],
+        "memoryRecallStatus": "disabled",
+        "selectedMemoryChunks": 0,
+        "suppressedMemoryChunks": 0
+      }
+    },
+    {
+      "name": "nexus repo — ruflo adapter focus selects memory modules",
+      "input": {
+        "workspace": ".",
+        "task": "Integrate Ruflo HNSW memory into resilient memory chain",
+        "objective": "Replace Engram as primary vector tier with Ruflo sub-ms retrieval",
+        "changedFiles": ["src/memory/ruflo-memory-adapter.js", "src/memory/ruflo-resilient-client.js"],
+        "project": "learning-context-system",
+        "noRecall": true,
+        "tokenBudget": 400,
+        "maxChunks": 5
+      },
+      "provider": { "memories": [] },
+      "expectations": {
+        "codeFocus": "src/memory/ruflo-memory-adapter.js",
+        "relatedTest": "test/noise-canceler.test.js",
+        "excludedSources": [],
+        "memoryRecallStatus": "disabled",
+        "selectedMemoryChunks": 0,
+        "suppressedMemoryChunks": 0
+      }
+    }
+  ]
+}

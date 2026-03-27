@@ -39,7 +39,7 @@ import "../io/markdown-adapter.js";
 /**
  * @param {IngestOptions} options
  * @param {{
- *   saveMemory: (input: import("../types/core-contracts.d.ts").MemorySaveInput) => Promise<Record<string, unknown>>
+ *   save: (input: import("../types/core-contracts.d.ts").MemorySaveInput) => Promise<Record<string, unknown>>
  * }} memoryClient
  * @returns {Promise<IngestResult>}
  */
@@ -82,7 +82,7 @@ export async function runIngestCommand(options, memoryClient) {
 
   for (const chunk of readResult.chunks) {
     try {
-      await memoryClient.saveMemory({
+      await memoryClient.save({
         title: `[${adapter.name}] ${chunk.id}`,
         content: chunk.content,
         type: "ingested",

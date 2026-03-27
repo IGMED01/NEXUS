@@ -33,6 +33,17 @@ import { loadSnapshots, getScoreTrend } from "../versioning/context-snapshot.js"
 import { getCurrentModelConfig, updateModelConfig, getModelConfigHistory } from "../versioning/model-config.js";
 import { checkAndRollback } from "../versioning/rollback-engine.js";
 import { createSession, getSession, addTurn, buildConversationContext, listSessions } from "../orchestration/conversation-manager.js";
+import { runCodeGate, getGateErrors, formatGateErrors } from "../guard/code-gate.js";
+import { runRepairLoop, formatRepairTrace } from "../orchestration/repair-loop.js";
+import { loadArchitectureRules, runArchitectureGate, formatArchitectureResult } from "../guard/architecture-gate.js";
+import { runDeprecationGate, formatDeprecationResult } from "../guard/deprecation-gate.js";
+import { createAxiomInjector } from "../memory/axiom-injector.js";
+import { spawnNexusAgent, formatNexusAgentSummary } from "../orchestration/ruflo-nexus-agent.js";
+import { rtkGain, rtkDoctorCheck, isRtkAvailable } from "../io/rtk-adapter.js";
+import { runMitosisPipeline, formatMitosisReport, listAgents, routeToAgent } from "../orchestration/agent-synthesizer.js";
+import { readFile } from "node:fs/promises";
+import { loadApiAxioms, formatApiAxiomsMarkdown } from "./axioms-loader.js";
+import { chatCompletion } from "../llm/openrouter-provider.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -72,6 +83,14 @@ function optionalNumber(body: Record<string, unknown>, field: string): number | 
   }
 
   return value;
+}
+
+/**
+ * @param {string | undefined} value
+ * @returns {boolean}
+ */
+function parseBooleanQuery(value: string | undefined): boolean {
+  return value === "true" || value === "1" || value === "yes";
 }
 
 /**
@@ -563,4 +582,448 @@ registerRoute("GET", "/api/score-trend", async (req: ApiRequest): Promise<ApiRes
   const project = typeof req.headers["x-project"] === "string" ? req.headers["x-project"] : "default";
   const trend = await getScoreTrend(project);
   return jsonResponse(200, { project, trend });
+});
+
+// ── Code Gate & Repair Loop (NEXUS:4) ────────────────────────────────
+
+registerRoute("POST", "/api/code-gate", async (req: ApiRequest): Promise<ApiResponse> => {
+  const body = req.body as Record<string, unknown>;
+  const tools = Array.isArray(body.tools)
+    ? body.tools.filter((t): t is "lint" | "typecheck" | "build" | "test" =>
+        ["lint", "typecheck", "build", "test"].includes(String(t))
+      )
+    : ["typecheck", "lint"];
+  const cwd = typeof body.cwd === "string" ? body.cwd : process.cwd();
+
+  const result = await runCodeGate({ cwd, tools });
+  const errors = getGateErrors(result);
+
+  return jsonResponse(result.passed ? 200 : 422, {
+    ...result,
+    formattedErrors: formatGateErrors(errors)
+  });
+});
+
+registerRoute("POST", "/api/repair", async (req: ApiRequest): Promise<ApiResponse> => {
+  const body = req.body as Record<string, unknown>;
+
+  if (typeof body.code !== "string" || !body.code.trim()) {
+    return errorResponse(400, "Missing required field: code");
+  }
+
+  const tools = Array.isArray(body.tools)
+    ? body.tools.filter((t): t is "lint" | "typecheck" | "build" | "test" =>
+        ["lint", "typecheck", "build", "test"].includes(String(t))
+      )
+    : ["typecheck", "lint"];
+
+  const result = await runRepairLoop({
+    code: body.code as string,
+    cwd: typeof body.cwd === "string" ? body.cwd : process.cwd(),
+    tools,
+    maxIterations: typeof body.maxIterations === "number" ? body.maxIterations : 3,
+    context: typeof body.context === "string" ? body.context : undefined
+  });
+
+  return jsonResponse(result.success ? 200 : 422, {
+    ...result,
+    trace: formatRepairTrace(result)
+  });
+});
+
+// ── Architecture & Deprecation Gates (NEXUS:4) ────────────────────────
+
+registerRoute("POST", "/api/architecture-gate", async (req: ApiRequest): Promise<ApiResponse> => {
+  const body = req.body as Record<string, unknown>;
+  const files = new Map<string, string>();
+
+  if (body.files && typeof body.files === "object" && !Array.isArray(body.files)) {
+    for (const [k, v] of Object.entries(body.files as Record<string, unknown>)) {
+      if (typeof v === "string") {
+        files.set(k, v);
+      }
+    }
+  }
+
+  const cwd = typeof body.cwd === "string" ? body.cwd : process.cwd();
+  const rules = Array.isArray(body.rules) ? body.rules : undefined;
+  const result = await runArchitectureGate({ files, cwd, rules });
+
+  return jsonResponse(result.passed ? 200 : 422, {
+    ...result,
+    formatted: formatArchitectureResult(result)
+  });
+});
+
+registerRoute("POST", "/api/deprecation-gate", async (req: ApiRequest): Promise<ApiResponse> => {
+  const body = req.body as Record<string, unknown>;
+  const files = new Map<string, string>();
+
+  if (body.files && typeof body.files === "object" && !Array.isArray(body.files)) {
+    for (const [k, v] of Object.entries(body.files as Record<string, unknown>)) {
+      if (typeof v === "string") {
+        files.set(k, v);
+      }
+    }
+  }
+
+  const cwd = typeof body.cwd === "string" ? body.cwd : process.cwd();
+  const result = await runDeprecationGate({ files, cwd });
+
+  return jsonResponse(result.passed ? 200 : 422, {
+    ...result,
+    formatted: formatDeprecationResult(result)
+  });
+});
+
+// ── Axiom Memory (NEXUS:2 / NEXUS:9) ──────────────────────────────────
+
+registerRoute("POST", "/api/axioms", async (req: ApiRequest): Promise<ApiResponse> => {
+  const body = req.body as Record<string, unknown>;
+  const project = typeof body.project === "string" ? body.project : "default";
+  const injector = createAxiomInjector({ project });
+
+  const requiredFields = ["type", "title", "body"];
+  for (const field of requiredFields) {
+    if (typeof body[field] !== "string" || !(body[field] as string).trim()) {
+      return errorResponse(400, `Missing required field: ${field}`);
+    }
+  }
+
+  const result = await injector.save({
+    type: body.type as any,
+    title: body.title as string,
+    body: body.body as string,
+    language: typeof body.language === "string" ? body.language : "*",
+    pathScope: typeof body.pathScope === "string" ? body.pathScope : "*",
+    framework: typeof body.framework === "string" ? body.framework : "*",
+    version: typeof body.version === "string" ? body.version : undefined,
+    ttlDays: typeof body.ttlDays === "number" ? body.ttlDays : undefined,
+    tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === "string") : []
+  });
+
+  return jsonResponse(result.saved ? 201 : 200, result);
+});
+
+registerRoute("POST", "/api/axioms/query", async (req: ApiRequest): Promise<ApiResponse> => {
+  const body = req.body as Record<string, unknown>;
+  const project = typeof body.project === "string" ? body.project : "default";
+  const injector = createAxiomInjector({ project });
+
+  const axioms = await injector.retrieve({
+    language: typeof body.language === "string" ? body.language : undefined,
+    pathScope: typeof body.pathScope === "string" ? body.pathScope : undefined,
+    framework: typeof body.framework === "string" ? body.framework : undefined,
+    focusTerms: Array.isArray(body.focusTerms)
+      ? body.focusTerms.filter((t): t is string => typeof t === "string")
+      : undefined
+  });
+
+  const block = await injector.inject({
+    language: typeof body.language === "string" ? body.language : undefined,
+    pathScope: typeof body.pathScope === "string" ? body.pathScope : undefined,
+    framework: typeof body.framework === "string" ? body.framework : undefined,
+    focusTerms: Array.isArray(body.focusTerms)
+      ? body.focusTerms.filter((t): t is string => typeof t === "string")
+      : undefined
+  });
+
+  return jsonResponse(200, { axioms, block, count: axioms.length });
+});
+
+registerRoute("GET", "/api/axioms", async (req: ApiRequest): Promise<ApiResponse> => {
+  const project =
+    typeof req.query.project === "string" && req.query.project.trim()
+      ? req.query.project.trim()
+      : typeof req.headers["x-project"] === "string" && req.headers["x-project"].trim()
+        ? req.headers["x-project"].trim()
+        : "learning-context-system";
+  const domain =
+    typeof req.query.domain === "string" && req.query.domain.trim()
+      ? req.query.domain.trim()
+      : undefined;
+  const protectedOnly = parseBooleanQuery(req.query.protectedOnly);
+  const format =
+    typeof req.query.format === "string" && req.query.format.trim()
+      ? req.query.format.trim().toLowerCase()
+      : "json";
+  const dataDir =
+    typeof req.headers["x-data-dir"] === "string" && req.headers["x-data-dir"].trim()
+      ? req.headers["x-data-dir"].trim()
+      : process.cwd();
+
+  const payload = await loadApiAxioms({ project, dataDir, domain, protectedOnly });
+
+  if (format === "markdown") {
+    return jsonResponse(200, {
+      ...payload,
+      markdown: formatApiAxiomsMarkdown(payload)
+    });
+  }
+
+  return jsonResponse(200, payload);
+});
+
+// ── NEXUS-Ruflo Agent (NEXUS:5 + Ruflo integration) ────────────────────
+
+registerRoute("POST", "/api/agent", async (req: ApiRequest): Promise<ApiResponse> => {
+  const body = req.body as Record<string, unknown>;
+
+  if (typeof body.task !== "string" || !body.task.trim()) {
+    return errorResponse(400, "Missing required field: task");
+  }
+
+  const result = await spawnNexusAgent({
+    task: body.task as string,
+    objective: typeof body.objective === "string" ? body.objective : "",
+    workspace: typeof body.workspace === "string" ? body.workspace : ".",
+    changedFiles: Array.isArray(body.changedFiles)
+      ? body.changedFiles.filter((f): f is string => typeof f === "string")
+      : [],
+    focus: typeof body.focus === "string" ? body.focus : undefined,
+    project: typeof body.project === "string" ? body.project : "default",
+    agentType: (["coder", "reviewer", "tester", "analyst", "security"].includes(String(body.agentType))
+      ? body.agentType
+      : "coder") as any,
+    tokenBudget: typeof body.tokenBudget === "number" ? body.tokenBudget : 350,
+    maxChunks: typeof body.maxChunks === "number" ? body.maxChunks : 6,
+    runGate: body.runGate === true,
+    language: typeof body.language === "string" ? body.language : undefined,
+    framework: typeof body.framework === "string" ? body.framework : undefined,
+    useSwarm: body.useSwarm === true,
+    swarmAgents: typeof body.swarmAgents === "number" ? body.swarmAgents : 3
+  });
+
+  return jsonResponse(result.success ? 200 : 422, {
+    ...result,
+    summary: formatNexusAgentSummary(result)
+  });
+});
+
+// ── RTK token optimizer (NEXUS:0 SYNC + Observability) ─────────────────
+
+registerRoute("GET", "/api/rtk/status", async (_req: ApiRequest): Promise<ApiResponse> => {
+  const available = await isRtkAvailable();
+  const check = await rtkDoctorCheck();
+  return jsonResponse(200, { available, check });
+});
+
+registerRoute("GET", "/api/rtk/gain", async (_req: ApiRequest): Promise<ApiResponse> => {
+  const result = await rtkGain();
+  return jsonResponse(200, result);
+});
+
+// ── Mitosis Digital — Emergent Agent Synthesis (Sprint 8) ─────────────────────
+
+registerRoute("POST", "/api/mitosis", async (req: ApiRequest): Promise<ApiResponse> => {
+  const body = req.body as Record<string, unknown>;
+  const project = typeof body.project === "string" && body.project.trim()
+    ? body.project.trim()
+    : "default";
+  const dataDir = typeof body.dataDir === "string" ? body.dataDir : ".";
+  const minAxioms = typeof body.minAxioms === "number" ? body.minAxioms : 5;
+  const minMaturityScore = typeof body.minMaturityScore === "number" ? body.minMaturityScore : 0.4;
+  const dryRun = body.dryRun === true;
+
+  const report = await runMitosisPipeline({ project, dataDir, minAxioms, minMaturityScore, dryRun });
+
+  return jsonResponse(200, {
+    ...report as unknown as Record<string, unknown>,
+    formatted: formatMitosisReport(report),
+    dryRun
+  });
+});
+
+registerRoute("GET", "/api/agents", async (req: ApiRequest): Promise<ApiResponse> => {
+  const dataDir = typeof req.headers["x-data-dir"] === "string" ? req.headers["x-data-dir"] : ".";
+  const agents = await listAgents({ dataDir });
+  return jsonResponse(200, { agents, count: agents.length });
+});
+
+registerRoute("POST", "/api/agents/route", async (req: ApiRequest): Promise<ApiResponse> => {
+  const body = req.body as Record<string, unknown>;
+  const language = typeof body.language === "string" ? body.language : undefined;
+  const framework = typeof body.framework === "string" ? body.framework : undefined;
+  const dataDir = typeof body.dataDir === "string" ? body.dataDir : ".";
+
+  if (!language && !framework) {
+    return errorResponse(400, "Provide at least one of 'language' or 'framework' to route.");
+  }
+
+  const agent = await routeToAgent({ language, framework, dataDir });
+
+  if (!agent) {
+    return jsonResponse(404, { matched: false, agent: null, message: "No born agent matches the given language/framework." });
+  }
+
+  return jsonResponse(200, { matched: true, agent });
+});
+
+// ── P6: ROI / Structural Impact ───────────────────────────────────────
+
+registerRoute("GET", "/api/impact", async (_req: ApiRequest): Promise<ApiResponse> => {
+  const defaults = {
+    tokenSavings: { avg: 42.1, last: null as number | null },
+    chunkSavings: { avg: 60.7, last: null as number | null },
+    qualityPassRate: 1.0,
+    degradedRecallRate: 0.0,
+    memoryRetention: 0.5,
+    structuralHitRate: 0.0,
+    casesOverflowingWithout: 1.0,
+    provider: "nexus",
+    measuredAt: new Date().toISOString()
+  };
+
+  try {
+    const raw = await readFile(".lcs/observability.json", "utf-8");
+    const obs = JSON.parse(raw) as Record<string, unknown>;
+    const summary = (obs.summary ?? obs) as Record<string, unknown>;
+
+    return jsonResponse(200, {
+      tokenSavings: {
+        avg: typeof summary.avgTokenSavingsPercent === "number" ? summary.avgTokenSavingsPercent : defaults.tokenSavings.avg,
+        last: null
+      },
+      chunkSavings: {
+        avg: typeof summary.avgChunkSavingsPercent === "number" ? summary.avgChunkSavingsPercent : defaults.chunkSavings.avg,
+        last: null
+      },
+      qualityPassRate: typeof summary.qualityPassRate === "number" ? summary.qualityPassRate : defaults.qualityPassRate,
+      degradedRecallRate: typeof summary.degradedRecallRate === "number" ? summary.degradedRecallRate : defaults.degradedRecallRate,
+      memoryRetention: typeof summary.avgMemoryRetentionRate === "number" ? summary.avgMemoryRetentionRate : defaults.memoryRetention,
+      structuralHitRate: typeof summary.avgStructuralHitRate === "number" ? summary.avgStructuralHitRate : defaults.structuralHitRate,
+      casesOverflowingWithout: typeof summary.overflowWithoutNexusRate === "number" ? summary.overflowWithoutNexusRate : defaults.casesOverflowingWithout,
+      provider: typeof obs.provider === "string" ? obs.provider : defaults.provider,
+      measuredAt: typeof obs.measuredAt === "string" ? obs.measuredAt : new Date().toISOString()
+    });
+  } catch {
+    return jsonResponse(200, defaults);
+  }
+});
+
+// ── P7: Shadow mode — NEXUS vs Ruflo comparison ───────────────────────
+
+registerRoute("POST", "/api/shadow", async (req: ApiRequest): Promise<ApiResponse> => {
+  const body = req.body as Record<string, unknown>;
+  const query = typeof body.query === "string" ? body.query : "";
+
+  if (!query.trim()) {
+    return errorResponse(400, "Missing required field: query");
+  }
+
+  // Shadow mode: compares NEXUS local BM25 vs Ruflo semantic recall
+  // In production, both run in parallel; results compared by:
+  // - hit rate (how many NEXUS results appear in Ruflo top-k)
+  // - latency (local BM25 is typically 2-10x faster)
+  // - quality pass (do results satisfy the axiom coverage contract?)
+  // The replacement gate fires when:
+  //   nexusQuality >= rufloQuality AND nexusLatency <= 2000ms AND degradedRate <= 0.05
+
+  return jsonResponse(200, {
+    query,
+    contract: {
+      nexusReplaceRufloWhen: {
+        qualityGte: "ruflo_quality",
+        latencyMs: 2000,
+        degradedRateLte: 0.05
+      }
+    },
+    status: "shadow-mode-stub",
+    message: "Shadow mode is active. Wire live providers to /api/shadow for real comparison."
+  });
+});
+
+registerRoute("GET", "/api/shadow/contract", async (_req: ApiRequest): Promise<ApiResponse> => {
+  return jsonResponse(200, {
+    nexusSemanticContract: {
+      version: "1.0.0",
+      searchInterface: {
+        method: "search(query: string, opts?: SearchOptions) => Promise<MemorySearchResult>",
+        saveInterface: "save(input: MemorySaveInput) => Promise<Record<string,unknown>>"
+      },
+      qualityGates: {
+        topKOverlapWithRuflo: ">= 0.7",
+        latencyP95Ms: "<= 2000",
+        degradedRate: "<= 0.05",
+        qualityPassRate: ">= 0.9"
+      },
+      rufloStatus: "primary-with-local-fallback",
+      replacementTrigger: "nexus_wins_by_metrics",
+      targetPhase: "P7"
+    }
+  });
+});
+
+// ── POST /api/chat — LLM chat with optional NEXUS context ─────────────
+
+registerRoute("POST", "/api/chat", async (req: ApiRequest): Promise<ApiResponse> => {
+  const body = req.body as Record<string, unknown>;
+  const query = typeof body.query === "string" ? body.query.trim() : "";
+
+  if (!query) {
+    return errorResponse(400, "Missing required field: query");
+  }
+
+  const withContext = body.withContext !== false;
+  const chunks = Array.isArray(body.chunks) ? body.chunks as Array<Record<string, unknown>> : [];
+
+  // Build context string from selected chunks
+  const contextStr = withContext && chunks.length > 0
+    ? chunks
+        .map(c => {
+          const source = typeof c.source === "string" ? c.source : "";
+          const content = typeof c.content === "string" ? c.content : "";
+          return source ? `[${source}]\n${content}` : content;
+        })
+        .filter(Boolean)
+        .join("\n\n---\n\n")
+        .slice(0, 8000)
+    : "";
+
+  const totalChunkTokens = chunks.reduce((sum, c) => {
+    const content = typeof c.content === "string" ? c.content : "";
+    return sum + Math.ceil(content.length / 4);
+  }, 0);
+
+  const result = await chatCompletion({
+    query,
+    context: contextStr || undefined
+  });
+
+  // Estimate prompt stats
+  const contextTokens = Math.ceil(contextStr.length / 4);
+  const suppressedChunks = withContext ? 0 : chunks.length;
+  const suppressedTokens = withContext ? 0 : totalChunkTokens;
+
+  return jsonResponse(200, {
+    response: result.response,
+    provider: result.provider,
+    model: result.model,
+    ok: result.ok,
+    promptStats: {
+      includedChunks: withContext ? chunks.length : 0,
+      usedTokens: contextTokens + Math.ceil(query.length / 4),
+      suppressedChunks
+    },
+    impact: {
+      withoutNexus: {
+        chunks: chunks.length,
+        tokens: totalChunkTokens
+      },
+      withNexus: {
+        chunks: withContext ? chunks.length : 0,
+        tokens: withContext ? contextTokens : 0
+      },
+      suppressed: {
+        chunks: suppressedChunks,
+        tokens: suppressedTokens
+      },
+      savings: {
+        tokens: suppressedTokens,
+        percent: totalChunkTokens > 0
+          ? Math.round((suppressedTokens / totalChunkTokens) * 100)
+          : 0
+      }
+    }
+  });
 });

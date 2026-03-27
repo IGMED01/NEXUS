@@ -99,8 +99,8 @@ const CONCEPT_CATALOG = [
   {
     title: "Agent memory architecture",
     description:
-      "The docs point toward Engram-style persistent memory, so understanding session memory and retrieval is useful for the next phase.",
-    signals: ["engram", "mcp", "session", "memory protocol", "mem_save", "mem_context"]
+      "The docs point toward a persistent memory runtime with local-first recall, so understanding session memory and retrieval is useful for the next phase.",
+    signals: ["engram", "memory", "mcp", "session", "memory protocol", "mem_save", "mem_context"]
   }
 ];
 
@@ -546,7 +546,7 @@ export async function buildLearningReadme(input) {
     "## Current Reality",
     "",
     "- This guide reflects the current code and docs, not future architecture promises.",
-    "- If Engram appears here, treat it as architectural direction unless it is imported and used in the code itself.",
+    "- If Engram appears here, treat it as an optional external battery unless it is imported and used in the code itself.",
     "- The selector is still heuristic; understanding the scoring logic matters more than memorizing every constant."
   ].join("\n");
 
