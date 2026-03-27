@@ -3,6 +3,11 @@
 import { readFile, readdir } from "node:fs/promises";
 import { extname, relative, resolve } from "node:path";
 import { chunkDocument } from "../processing/chunker.js";
+import {
+  extractCodeSymbols,
+  summarizeCodeSymbolsForChunk,
+  supportsCodeSymbolExtraction
+} from "../processing/code-symbol-extractor.js";
 import { extractEntities } from "../processing/entity-extractor.js";
 import { tagChunkMetadata } from "../processing/metadata-tagger.js";
 
@@ -285,6 +290,13 @@ export async function loadWorkspaceChunks(rootPath, options = {}) {
       ? `${redaction.content.slice(0, MAX_FILE_CHARS)}\n/* file truncated for context scan */`
       : redaction.content;
     const kind = classifyKind(file.source);
+    const symbolGraph =
+      (kind === "code" || kind === "test") && supportsCodeSymbolExtraction(file.source)
+        ? extractCodeSymbols({
+            source: file.source,
+            content
+          })
+        : undefined;
 
     stats.includedFiles += 1;
     stats.kinds[kind] += 1;
@@ -344,7 +356,8 @@ export async function loadWorkspaceChunks(rootPath, options = {}) {
       /** @type {Record<string, unknown>} */ (chunk).processing = {
         section: processed.metadata,
         tags,
-        entities
+        entities,
+        symbols: summarizeCodeSymbolsForChunk(symbolGraph, processed.metadata)
       };
 
       chunks.push(chunk);

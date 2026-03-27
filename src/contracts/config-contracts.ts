@@ -22,7 +22,7 @@ export interface ProjectMemoryConfig {
   limit: number;
   scope: string;
   type: string;
-  backend: "resilient" | "engram-only" | "local-only";
+  backend: "resilient" | "local-only";
   strictRecall: boolean;
   degradedRecall: boolean;
   autoRecall: boolean;
@@ -279,8 +279,10 @@ export function validateProjectConfig(value: unknown): ProjectConfig {
     memoryBackend !== "engram-only" &&
     memoryBackend !== "local-only"
   ) {
-    fail("Project config.memory.backend must be 'resilient', 'engram-only', or 'local-only'.");
+    fail("Project config.memory.backend must be 'resilient' or 'local-only' (legacy alias: 'engram-only').");
   }
+
+  const normalizedMemoryBackend = memoryBackend === "engram-only" ? "resilient" : memoryBackend;
 
   return {
     schemaVersion: optionalString(config.schemaVersion, "Project config.schemaVersion") ?? defaults.schemaVersion,
@@ -324,7 +326,7 @@ export function validateProjectConfig(value: unknown): ProjectConfig {
         }) ?? defaults.memory.limit,
       scope: optionalString(memory?.scope, "Project config.memory.scope") ?? defaults.memory.scope,
       type: optionalString(memory?.type, "Project config.memory.type") ?? defaults.memory.type,
-      backend: memoryBackend ?? defaults.memory.backend,
+      backend: normalizedMemoryBackend ?? defaults.memory.backend,
       strictRecall:
         optionalBoolean(memory?.strictRecall, "Project config.memory.strictRecall") ??
         defaults.memory.strictRecall,

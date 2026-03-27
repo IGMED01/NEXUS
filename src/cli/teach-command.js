@@ -1,11 +1,18 @@
 // @ts-check
 
 import { buildLearningPacket } from "../learning/mentor-loop.js";
-import { createEngramClient } from "../memory/engram-client.js";
+import { createLocalMemoryStore } from "../memory/local-memory-store.js";
+import { createResilientMemoryClient } from "../memory/resilient-memory-client.js";
+import {
+  buildAcceptedMemoryMetadata,
+  evaluateMemoryWrite,
+  quarantineMemoryWrite
+} from "../memory/memory-hygiene.js";
 import {
   buildTeachAutoRememberPayload,
   resolveAutoTeachRecall
-} from "../memory/engram-auto-orchestrator.js";
+} from "../memory/memory-auto-orchestrator.js";
+import { legacySearchStdoutToEntries } from "../memory/memory-utils.js";
 import { formatLearningPacketAsText } from "./formatters.js";
 import {
   assertNumberRules,
@@ -44,6 +51,7 @@ import {
  *     autoRememberEnabled: boolean,
  *     rememberAttempted: boolean,
  *     rememberSaved: boolean,
+ *     rememberStatus?: string,
  *     rememberTitle: string,
  *     rememberError: string,
  *     rememberRedactionCount: number,
@@ -76,9 +84,25 @@ import {
 
 /**
  * @typedef {{
- *   engramClient?: ReturnType<typeof createEngramClient>
+ *   memoryClient?: ReturnType<typeof createResilientMemoryClient>,
+ *   engramClient?: ReturnType<typeof createResilientMemoryClient>
  * }} AppDependencies
  */
+
+/**
+ * @param {AppDependencies} [dependencies]
+ */
+function getInjectedMemoryClient(dependencies = {}) {
+  if (dependencies.memoryClient) {
+    return dependencies.memoryClient;
+  }
+
+  if (dependencies.engramClient) {
+    return dependencies.engramClient;
+  }
+
+  return null;
+}
 
 /**
  * @typedef {{
@@ -108,19 +132,88 @@ import {
  */
 
 /**
- * @param {CliOptions} options
  * @param {AppDependencies} [dependencies]
- * @returns {ReturnType<typeof createEngramClient>}
+ * @returns {ReturnType<typeof createResilientMemoryClient>}
  */
-function getEngramClient(options, dependencies = {}) {
-  if (dependencies.engramClient) {
-    return dependencies.engramClient;
+function getMemoryClient(options, dependencies = {}) {
+  const injectedMemoryClient = getInjectedMemoryClient(dependencies);
+  if (injectedMemoryClient) {
+    return injectedMemoryClient;
   }
 
-  return createEngramClient({
-    binaryPath: options["engram-bin"],
-    dataDir: options["engram-data-dir"]
+  const local = createLocalMemoryStore({
+    filePath: options["memory-fallback-file"],
+    baseDir: options["memory-base-dir"]
   });
+
+  return createResilientMemoryClient({
+    primary: local,
+    fallback: local
+  });
+}
+
+/**
+ * @param {ReturnType<typeof createResilientMemoryClient>} memoryClient
+ * @param {string} query
+ * @param {{ project?: string, scope?: string, type?: string, limit?: number }} [options]
+ */
+async function searchMemoryClient(memoryClient, query, options = {}) {
+  if (typeof memoryClient.search === "function") {
+    const result = await memoryClient.search(query, options);
+
+    if (Array.isArray(result?.entries)) {
+      return result;
+    }
+
+    const stdout = typeof result?.stdout === "string" ? result.stdout : "";
+    return {
+      ...result,
+      entries: legacySearchStdoutToEntries(stdout, { project: options.project }),
+      stdout,
+      provider:
+        typeof result?.provider === "string" && result.provider.trim()
+          ? result.provider
+          : "memory"
+    };
+  }
+
+  const legacyResult = await memoryClient.searchMemories(query, options);
+  return {
+    entries: legacySearchStdoutToEntries(legacyResult.stdout, { project: options.project }),
+    stdout: legacyResult.stdout,
+    provider:
+      typeof legacyResult.provider === "string" && legacyResult.provider.trim()
+        ? legacyResult.provider
+        : "memory"
+  };
+}
+
+/**
+ * @param {ReturnType<typeof createResilientMemoryClient>} memoryClient
+ * @param {import("../types/core-contracts.d.ts").MemorySaveInput} input
+ */
+async function saveMemoryClient(memoryClient, input) {
+  if (typeof memoryClient.save === "function") {
+    return memoryClient.save(input);
+  }
+
+  if (typeof memoryClient.saveMemory === "function") {
+    return memoryClient.saveMemory(input);
+  }
+
+  throw new Error("save()/saveMemory() not supported by the configured memory client.");
+}
+
+/**
+ * @param {{ kind?: string, source?: string, origin?: string }} chunk
+ */
+function isMemorySelectionChunk(chunk) {
+  return (
+    chunk.kind === "memory" ||
+    String(chunk.source ?? "").startsWith("engram://") ||
+    String(chunk.source ?? "").startsWith("memory://") ||
+    chunk.origin === "memory"
+  );
 }
 
 /**
@@ -185,7 +278,7 @@ export async function runTeachCommand(input) {
   const objective = requireOption(options, "objective");
   const changedFiles = listOption(options, "changed-files");
   const focus = options.focus ?? `${task} ${objective}`;
-  const engram = getEngramClient(options, dependencies);
+  const memoryClient = getMemoryClient(options, dependencies);
   const memoryScope = options["memory-scope"] ?? "project";
   const memoryType = options["memory-type"];
   const noRecall = booleanOption(options, "no-recall", false);
@@ -218,7 +311,7 @@ export async function runTeachCommand(input) {
     type: memoryType,
     strictRecall,
     baseChunks: payload.chunks,
-    searchMemories: engram.searchMemories
+    search: (query, searchOptions) => searchMemoryClient(memoryClient, query, searchOptions)
   });
   const packet = buildLearningPacket({
     task,
@@ -233,10 +326,10 @@ export async function runTeachCommand(input) {
     debug: debugEnabled
   });
   const selectedMemoryChunkIds = packet.selectedContext
-    .filter((chunk) => chunk.source.startsWith("engram://"))
+    .filter((chunk) => isMemorySelectionChunk(chunk))
     .map((chunk) => chunk.id);
   const suppressedMemoryChunkIds = packet.suppressedContext
-    .filter((chunk) => String(chunk.id).startsWith("engram-memory-"))
+    .filter((chunk) => isMemorySelectionChunk(chunk))
     .map((chunk) => chunk.id);
   const packetWithMemory = /** @type {LearningPacketWithMemory} */ ({
     ...packet,
@@ -259,6 +352,7 @@ export async function runTeachCommand(input) {
     autoRememberEnabled: autoRemember,
     rememberAttempted: false,
     rememberSaved: false,
+    rememberStatus: "idle",
     rememberTitle: "",
     rememberError: "",
     rememberRedactionCount: 0,
@@ -283,19 +377,48 @@ export async function runTeachCommand(input) {
       packetWithMemory.autoMemory.rememberRedactionCount = rememberInput.security.redactionCount;
       packetWithMemory.autoMemory.rememberSensitivePathCount =
         rememberInput.security.sensitivePathCount;
-      const rememberResult = await engram.saveMemory({
+      packetWithMemory.autoMemory.rememberTitle = rememberInput.title;
+      const hygiene = evaluateMemoryWrite({
         title: rememberInput.title,
         content: rememberInput.content,
         type: rememberInput.type,
         scope: rememberInput.scope,
-        project: rememberInput.project
+        project: rememberInput.project,
+        sourceKind: "auto-remember"
       });
-      packetWithMemory.autoMemory.rememberSaved = true;
-      packetWithMemory.autoMemory.rememberTitle = rememberInput.title;
-      if (rememberResult?.warning) {
-        packetWithMemory.autoMemory.rememberError = rememberResult.warning;
+
+      if (hygiene.action === "quarantine") {
+        await quarantineMemoryWrite({
+          cwd: process.cwd(),
+          quarantineDir: options["memory-quarantine-dir"],
+          title: rememberInput.title,
+          content: rememberInput.content,
+          type: rememberInput.type,
+          scope: rememberInput.scope,
+          project: rememberInput.project,
+          sourceKind: "auto-remember",
+          reasons: hygiene.reasons
+        });
+        packetWithMemory.autoMemory.rememberSaved = false;
+        packetWithMemory.autoMemory.rememberStatus = "quarantined";
+        packetWithMemory.autoMemory.rememberError = hygiene.reasons.join(", ");
+      } else {
+        const rememberResult = await saveMemoryClient(memoryClient, {
+          title: rememberInput.title,
+          content: rememberInput.content,
+          type: rememberInput.type,
+          scope: rememberInput.scope,
+          project: rememberInput.project,
+          ...buildAcceptedMemoryMetadata(hygiene, { sourceKind: "auto-remember" })
+        });
+        packetWithMemory.autoMemory.rememberSaved = true;
+        packetWithMemory.autoMemory.rememberStatus = "accepted";
+        if (rememberResult?.warning) {
+          packetWithMemory.autoMemory.rememberError = rememberResult.warning;
+        }
       }
     } catch (error) {
+      packetWithMemory.autoMemory.rememberStatus = "failed";
       packetWithMemory.autoMemory.rememberError =
         error instanceof Error ? error.message : String(error);
     }
@@ -329,7 +452,13 @@ export async function runTeachCommand(input) {
     packetWithMemory.autoMemory?.rememberError &&
     !packetWithMemory.autoMemory.rememberSaved
   ) {
-    warnings.push(`Auto remember failed: ${packetWithMemory.autoMemory.rememberError}`);
+    if (packetWithMemory.autoMemory.rememberStatus === "quarantined") {
+      warnings.push(
+        `Auto remember quarantined by hygiene gate: ${packetWithMemory.autoMemory.rememberError}`
+      );
+    } else {
+      warnings.push(`Auto remember failed: ${packetWithMemory.autoMemory.rememberError}`);
+    }
   }
 
   if (

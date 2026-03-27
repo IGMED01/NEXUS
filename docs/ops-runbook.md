@@ -14,7 +14,7 @@ npm.cmd run doctor
 Expected:
 
 - `doctor` has no `fail`
-- `warn` is acceptable only for optional Engram runtime in clean environments
+- `warn` is acceptable only for optional semantic/fallback runtimes in clean environments
 
 ## 2) Core validation gate (before push)
 
@@ -74,6 +74,14 @@ Expected:
 - Treat any `Auto remember failed:` warning as degraded output and investigate before relying on persisted memory.
 
 ## 4) Incident / degraded mode response
+
+Orden operativo de memoria:
+
+1. local JSONL
+2. Ruflo / semantic tier
+3. Engram solo como bateria externa de contingencia
+
+Ver politica completa en `docs/memory-battery-policy.md`.
 
 If Engram is unavailable:
 

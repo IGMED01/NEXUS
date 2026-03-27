@@ -1,10 +1,12 @@
 // @ts-check
 
 import { buildTeachRecallQueries } from "./recall-queries.js";
-import { searchOutputToChunks } from "./engram-client.js";
+import { memoryEntriesToChunks } from "./memory-utils.js";
 
 /** @typedef {import("../types/core-contracts.d.ts").MemoryRecallState} MemoryRecallState */
 /** @typedef {import("../types/core-contracts.d.ts").TeachRecallResolution} TeachRecallResolution */
+/** @typedef {import("../types/core-contracts.d.ts").MemorySearchResult} MemorySearchResult */
+/** @typedef {import("../types/core-contracts.d.ts").MemorySearchOptions} MemorySearchOptions */
 /** @typedef {import("../types/core-contracts.d.ts").Chunk} Chunk */
 
 const DEFAULT_RECALL_RETRY_ATTEMPTS = 2;
@@ -47,12 +49,13 @@ function sleep(milliseconds) {
 
 /**
  * @param {string} query
- * @param {{ project?: string, scope?: string, type?: string, limit?: number }} options
+ * @param {MemorySearchOptions} options
  * @param {{
- *   searchMemories: (query: string, options?: { project?: string, scope?: string, type?: string, limit?: number }) => Promise<{ stdout: string }>,
+ *   search: (query: string, options?: MemorySearchOptions) => Promise<MemorySearchResult>,
  *   retryAttempts: number,
  *   retryBackoffMs: number
  * }} runtime
+ * @returns {Promise<MemorySearchResult>}
  */
 async function searchWithRetry(query, options, runtime) {
   let attempt = 0;
@@ -63,7 +66,7 @@ async function searchWithRetry(query, options, runtime) {
     attempt += 1;
 
     try {
-      return await runtime.searchMemories(query, options);
+      return await runtime.search(query, options);
     } catch (error) {
       lastError = error;
 
@@ -77,7 +80,7 @@ async function searchWithRetry(query, options, runtime) {
     }
   }
 
-  throw lastError ?? new Error("Engram recall failed with unknown error.");
+  throw lastError ?? new Error("Memory recall failed with unknown error.");
 }
 
 /**
@@ -141,7 +144,7 @@ function skippedRecall(project = "") {
  *   retryAttempts?: number,
  *   retryBackoffMs?: number,
  *   baseChunks?: Chunk[],
- *   searchMemories: (query: string, options?: { project?: string, scope?: string, type?: string, limit?: number }) => Promise<{ stdout: string }>
+ *   search: (query: string, options?: MemorySearchOptions) => Promise<MemorySearchResult>
  * }} input
  * @returns {Promise<TeachRecallResolution>}
  */
@@ -183,6 +186,10 @@ export async function resolveTeachRecall(input) {
   let lastProviderError = "";
   let providerFallbackWarning = "";
   let providerFallbackKind = "";
+  let providerName = "";
+  /** @type {string[]} */
+  let providerChain = [];
+  let fallbackProvider = "";
 
   try {
     for (const query of queryCandidates) {
@@ -200,12 +207,20 @@ export async function resolveTeachRecall(input) {
             limit
           },
           {
-            searchMemories: input.searchMemories,
+            search: input.search,
             retryAttempts,
             retryBackoffMs
           }
         );
         providerHadSuccess = true;
+        providerName = typeof memoryResult.provider === "string" ? memoryResult.provider : "";
+        providerChain = Array.isArray(memoryResult.providerChain)
+          ? memoryResult.providerChain.filter((entry) => typeof entry === "string" && entry.trim())
+          : providerName
+            ? [providerName]
+            : [];
+        fallbackProvider =
+          typeof memoryResult.fallbackProvider === "string" ? memoryResult.fallbackProvider : "";
         if (memoryResult && typeof memoryResult === "object" && memoryResult.degraded === true) {
           providerFallbackWarning =
             typeof memoryResult.warning === "string" ? memoryResult.warning : "";
@@ -222,7 +237,10 @@ export async function resolveTeachRecall(input) {
         continue;
       }
 
-      const memoryChunks = searchOutputToChunks(memoryResult.stdout, { query, project: input.project });
+      const memoryChunks = memoryEntriesToChunks(memoryResult.entries ?? [], {
+        query,
+        project
+      });
 
       if (memoryChunks.length) {
         matchedQueries.push(query);
@@ -249,7 +267,7 @@ export async function resolveTeachRecall(input) {
           enabled: true,
           status: "failed",
           degraded: true,
-          reason: "engram-error",
+          reason: "memory-error",
           query: queryCandidates[0] ?? "",
           queriesTried,
           matchedQueries: [],
@@ -271,6 +289,9 @@ export async function resolveTeachRecall(input) {
         status: memoryChunks.length ? "recalled" : "empty",
         degraded: Boolean(providerFallbackWarning),
         reason: providerFallbackWarning ? "fallback-local" : "",
+        ...(providerName ? { provider: providerName } : {}),
+        ...(providerChain.length ? { providerChain } : {}),
+        ...(fallbackProvider ? { fallbackProvider } : {}),
         query: winningQuery,
         queriesTried,
         matchedQueries,
@@ -295,7 +316,7 @@ export async function resolveTeachRecall(input) {
         enabled: true,
         status: "failed",
         degraded: true,
-        reason: "engram-error",
+        reason: "memory-error",
         query: queryCandidates[0] ?? "",
         queriesTried: queryCandidates,
         matchedQueries: [],

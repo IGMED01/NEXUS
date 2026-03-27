@@ -3,7 +3,7 @@
 import { tokenize } from "../context/noise-canceler.js";
 import { loadWorkspaceChunks } from "../io/workspace-chunks.js";
 import { buildLearningPacket } from "../learning/mentor-loop.js";
-import { resolveAutoTeachRecall } from "../memory/engram-auto-orchestrator.js";
+import { resolveAutoTeachRecall } from "../memory/memory-auto-orchestrator.js";
 
 /**
  * @typedef {import("../contracts/vertical-benchmark-contracts.js").parseVerticalBenchmarkFile extends (...args: any[]) => infer R ? R["cases"][number] : never} VerticalComparisonCase
@@ -56,14 +56,14 @@ function summarizeKinds(chunks) {
 }
 
 /**
- * @param {Array<{ source?: string }>} chunks
+ * @param {Array<{ source?: string, kind?: string }>} chunks
  */
 function summarizeOrigins(chunks) {
   let workspace = 0;
   let memory = 0;
 
   for (const chunk of chunks) {
-    if (String(chunk.source ?? "").startsWith("engram://")) {
+    if (chunk.kind === "memory") {
       memory += 1;
       continue;
     }
@@ -88,29 +88,32 @@ function normalizeList(values) {
  * @param {string} project
  * @param {Array<{ query: string, observationId: string, type: string, title: string, body: string, timestamp: string }>} memories
  */
-function createBenchmarkSearchMemories(project, memories) {
+function createBenchmarkSearch(project, memories) {
   return async (query, options = {}) => {
     const normalizedQuery = String(query ?? "").trim();
     const matches = memories.filter((entry) => entry.query === normalizedQuery);
 
     if (!matches.length) {
       return {
-        stdout: "No memories found for that query."
+        entries: [],
+        stdout: "No memories found for that query.",
+        provider: "benchmark-memory"
       };
     }
 
-    const lines = [`Found ${matches.length} memories:`, ""];
-
-    for (const [index, memory] of matches.entries()) {
-      lines.push(`[${index + 1}] #${memory.observationId} (${memory.type}) — ${memory.title}`);
-      lines.push(`    ${memory.body}`);
-      lines.push(
-        `    ${memory.timestamp} | project: ${options.project ?? project} | scope: ${options.scope ?? "project"}`
-      );
-    }
-
     return {
-      stdout: lines.join("\n")
+      entries: matches.map((memory) => ({
+        id: memory.observationId,
+        title: memory.title,
+        content: memory.body,
+        type: memory.type,
+        project: options.project ?? project,
+        scope: options.scope ?? "project",
+        topic: "",
+        createdAt: new Date(memory.timestamp.replace(" ", "T")).toISOString()
+      })),
+      stdout: `Found ${matches.length} memories:`,
+      provider: "benchmark-memory"
     };
   };
 }
@@ -120,7 +123,7 @@ function createBenchmarkSearchMemories(project, memories) {
  */
 export async function runNexusComparisonCase(entry) {
   const workspace = await loadWorkspaceChunks(entry.input.workspace);
-  const searchMemories = createBenchmarkSearchMemories(
+  const search = createBenchmarkSearch(
     entry.input.project,
     entry.provider.memories
   );
@@ -137,7 +140,7 @@ export async function runNexusComparisonCase(entry) {
     scope: "project",
     strictRecall: false,
     baseChunks: workspace.payload.chunks,
-    searchMemories
+    search
   });
   const packet = buildLearningPacket({
     task: entry.input.task,
@@ -157,13 +160,17 @@ export async function runNexusComparisonCase(entry) {
   const suppressedChunks = packet.suppressedContext.length;
   const suppressedTokens = Math.max(0, rawTokens - selectedTokens);
   const selectedSources = packet.selectedContext.map((chunk) => chunk.source);
-  const selectedMemoryChunks = packet.selectedContext.filter((chunk) =>
-    String(chunk.source ?? "").startsWith("engram://")
+  const structuralSelectedChunks = packet.selectedContext.filter(
+    (chunk) => (chunk.diagnostics?.structuralSignalCount ?? 0) > 0
   ).length;
-  const suppressedMemoryChunks = packet.suppressedContext.filter((chunk) =>
-    String(chunk.source ?? "").startsWith("engram://") ||
-    String(chunk.id ?? "").startsWith("engram-memory-")
+  const structuralFocusedChunks = packet.selectedContext.filter(
+    (chunk) =>
+      (chunk.diagnostics?.structuralOverlap ?? 0) > 0 ||
+      (chunk.diagnostics?.structuralPublicSurface ?? 0) > 0 ||
+      (chunk.diagnostics?.structuralDependency ?? 0) > 0
   ).length;
+  const selectedMemoryChunks = packet.selectedContext.filter((chunk) => chunk.kind === "memory").length;
+  const suppressedMemoryChunks = packet.suppressedContext.filter((chunk) => chunk.kind === "memory").length;
   const recoveredMemoryChunks = recall.memoryRecall.recoveredChunks;
   const memoryRetentionRate =
     recoveredMemoryChunks > 0 ? selectedMemoryChunks / recoveredMemoryChunks : 1;
@@ -202,7 +209,11 @@ export async function runNexusComparisonCase(entry) {
       suppressedTokens,
       origins: summarizeOrigins(packet.selectedContext),
       kinds: summarizeKinds(packet.selectedContext),
-      selectedSources
+      selectedSources,
+      structuralSelectedChunks,
+      structuralFocusedChunks,
+      structuralHitRate:
+        selectedChunks > 0 ? round(structuralFocusedChunks / selectedChunks) : 0
     },
     savings: {
       chunks: Math.max(0, rawChunks.length - selectedChunks),
@@ -211,6 +222,11 @@ export async function runNexusComparisonCase(entry) {
     },
     memory: {
       status: recall.memoryRecall.status,
+      provider: recall.memoryRecall.provider ?? "",
+      providerChain: Array.isArray(recall.memoryRecall.providerChain)
+        ? recall.memoryRecall.providerChain
+        : [],
+      degraded: recall.memoryRecall.degraded === true,
       recoveredChunks: recoveredMemoryChunks,
       selectedChunks: selectedMemoryChunks,
       suppressedChunks: suppressedMemoryChunks,
@@ -257,10 +273,24 @@ export async function runNexusComparisonSuite(cases) {
   const avgMemoryRetentionRate = memoryCases.length
     ? average(memoryCases.map((result) => result.memory.retentionRate))
     : 1;
+  const avgStructuralHitRate = average(
+    results.map((result) => result.withNexus.structuralHitRate)
+  );
+  const degradedRecallRate = ratio(
+    results.filter((result) => result.memory.degraded).length,
+    results.length
+  );
   const qualityPassRate = ratio(
     results.filter((result) => result.quality.pass).length,
     results.length
   );
+  /** @type {Record<string, number>} */
+  const providerBreakdown = {};
+
+  for (const result of results) {
+    const key = result.memory.provider || "unknown";
+    providerBreakdown[key] = (providerBreakdown[key] ?? 0) + 1;
+  }
 
   /** @type {string[]} */
   const improvements = [];
@@ -301,6 +331,9 @@ export async function runNexusComparisonSuite(cases) {
       avgTokenSavingsPercent: round(avgTokenSavingsPercent),
       overflowWithoutNexusRate: round(overflowWithoutNexusRate * 100) / 100,
       avgMemoryRetentionRate: round(avgMemoryRetentionRate * 100) / 100,
+      avgStructuralHitRate: round(avgStructuralHitRate * 100) / 100,
+      degradedRecallRate: round(degradedRecallRate * 100) / 100,
+      providerBreakdown,
       qualityPassRate: round(qualityPassRate * 100) / 100
     },
     improvements,
@@ -327,7 +360,10 @@ export function formatNexusComparisonReport(report) {
       `  savings: ${result.savings.chunks} chunks / ${result.savings.tokens} tokens / ${result.savings.percent}%`
     );
     lines.push(
-      `  memory: status=${result.memory.status} recovered=${result.memory.recoveredChunks} selected=${result.memory.selectedChunks} suppressed=${result.memory.suppressedChunks}`
+      `  memory: status=${result.memory.status} provider=${result.memory.provider || "unknown"} degraded=${result.memory.degraded ? "yes" : "no"} recovered=${result.memory.recoveredChunks} selected=${result.memory.selectedChunks} suppressed=${result.memory.suppressedChunks}`
+    );
+    lines.push(
+      `  structural: selected=${result.withNexus.structuralSelectedChunks} focused=${result.withNexus.structuralFocusedChunks} hitRate=${result.withNexus.structuralHitRate}`
     );
     lines.push(
       `  quality: code=${result.quality.codeFocusPass ? "yes" : "no"} test=${result.quality.relatedTestPass ? "yes" : "no"} noise=${result.quality.noiseExclusionPass ? "yes" : "no"} memory=${result.quality.memoryBehaviorPass ? "yes" : "no"}`
@@ -349,7 +385,14 @@ export function formatNexusComparisonReport(report) {
   lines.push(
     `- Avg memory retention: ${toPercent(report.summary.avgMemoryRetentionRate)}`
   );
+  lines.push(
+    `- Avg structural hit rate: ${toPercent(report.summary.avgStructuralHitRate)}`
+  );
+  lines.push(
+    `- Degraded recall rate: ${toPercent(report.summary.degradedRecallRate)}`
+  );
   lines.push(`- Quality pass rate: ${toPercent(report.summary.qualityPassRate)}`);
+  lines.push(`- Memory providers: ${normalizeList(Object.entries(report.summary.providerBreakdown).map(([provider, count]) => `${provider}=${count}`)).join(", ") || "none"}`);
 
   if (report.improvements.length > 0) {
     lines.push("");

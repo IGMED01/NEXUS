@@ -46,7 +46,7 @@ export interface IngestResult {
 }
 
 interface MemoryClientLike {
-  saveMemory: (input: MemorySaveInput) => Promise<Record<string, unknown>>;
+  save: (input: MemorySaveInput) => Promise<Record<string, unknown>>;
 }
 
 export async function runIngestCommand(
@@ -93,7 +93,7 @@ export async function runIngestCommand(
   // Save each chunk to memory
   for (const chunk of readResult.chunks) {
     try {
-      await memoryClient.saveMemory({
+      await memoryClient.save({
         title: `[${adapter.name}] ${chunk.id}`,
         content: chunk.content,
         type: "ingested",

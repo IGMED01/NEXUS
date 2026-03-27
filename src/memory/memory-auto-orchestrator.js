@@ -1,5 +1,12 @@
 // @ts-check
 
+/**
+ * Memory Auto-Orchestrator — provider-agnostic memory recall and auto-remember logic.
+ *
+ * Previously "engram-auto-orchestrator.js" — now fully decoupled from Engram.
+ * Works with any MemoryProvider (Ruflo HNSW, local JSONL, axiom-store, or future vector-store).
+ */
+
 import {
   redactSensitiveContent,
   resolveSecurityPolicy,
@@ -10,6 +17,8 @@ import { resolveTeachRecall } from "./teach-recall.js";
 /** @typedef {import("../types/core-contracts.d.ts").Chunk} Chunk */
 /** @typedef {import("../types/core-contracts.d.ts").TeachRecallResolution} TeachRecallResolution */
 /** @typedef {import("../types/core-contracts.d.ts").MemoryRecallState} MemoryRecallState */
+/** @typedef {import("../types/core-contracts.d.ts").MemorySearchResult} MemorySearchResult */
+/** @typedef {import("../types/core-contracts.d.ts").MemorySearchOptions} MemorySearchOptions */
 
 /**
  * @typedef {{
@@ -64,9 +73,7 @@ function sanitizePathList(values, securityPolicy) {
   let sensitivePathCount = 0;
 
   for (const value of values) {
-    if (!value) {
-      continue;
-    }
+    if (!value) continue;
 
     if (shouldIgnoreSensitiveFile(value, securityPolicy)) {
       sensitivePathCount += 1;
@@ -77,13 +84,13 @@ function sanitizePathList(values, securityPolicy) {
     sanitized.push(value);
   }
 
-  return {
-    values: sanitized,
-    sensitivePathCount
-  };
+  return { values: sanitized, sensitivePathCount };
 }
 
 /**
+ * Resolve recall with auto-signal detection.
+ * Skips recall when task signal is too low to produce useful results.
+ *
  * @param {{
  *   task?: string,
  *   objective?: string,
@@ -98,7 +105,7 @@ function sanitizePathList(values, securityPolicy) {
  *   type?: string,
  *   strictRecall?: boolean,
  *   baseChunks?: Chunk[],
- *   searchMemories: (query: string, options?: { project?: string, scope?: string, type?: string, limit?: number }) => Promise<{ stdout: string }>
+ *   search: (query: string, options?: MemorySearchOptions) => Promise<MemorySearchResult>
  * }} input
  * @returns {Promise<TeachRecallResolution & { autoRecallEnabled: boolean }>}
  */
@@ -122,7 +129,7 @@ export async function resolveAutoTeachRecall(input) {
     type: input.type,
     strictRecall: input.strictRecall,
     baseChunks: input.baseChunks,
-    searchMemories: input.searchMemories
+    search: input.search
   });
 
   if (lowSignalTask) {
@@ -137,10 +144,7 @@ export async function resolveAutoTeachRecall(input) {
     };
   }
 
-  return {
-    ...result,
-    autoRecallEnabled
-  };
+  return { ...result, autoRecallEnabled };
 }
 
 /**
@@ -153,6 +157,8 @@ function compactText(value, maxLength) {
 }
 
 /**
+ * Build a payload for auto-remember after a teach loop.
+ *
  * @param {AutoRememberPayloadInput} input
  * @returns {AutoRememberPayload}
  */
@@ -182,6 +188,7 @@ export function buildTeachAutoRememberPayload(input) {
     `- Selected recalled chunks: ${recall.selectedChunks}`,
     `- Top selected context sources: ${topSources.values.join(", ") || "none"}`
   ].join("\n");
+
   const redaction = redactSensitiveContent(rawContent, securityPolicy);
 
   return {

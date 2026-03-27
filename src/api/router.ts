@@ -84,6 +84,8 @@ export function buildApiRequest(
   body: Record<string, unknown>
 ): ApiRequest {
   const headers: Record<string, string> = {};
+  const query: Record<string, string> = {};
+  const requestUrl = new URL(httpReq.url ?? "/", "http://127.0.0.1");
 
   for (const [key, value] of Object.entries(httpReq.headers)) {
     if (typeof value === "string") {
@@ -91,11 +93,16 @@ export function buildApiRequest(
     }
   }
 
+  requestUrl.searchParams.forEach((value, key) => {
+    query[key] = value;
+  });
+
   return {
     method: (httpReq.method ?? "GET").toUpperCase(),
-    path: (httpReq.url ?? "/").split("?")[0],
+    path: requestUrl.pathname,
     body,
-    headers
+    headers,
+    query
   };
 }
 

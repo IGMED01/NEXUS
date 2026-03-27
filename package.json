@@ -33,6 +33,10 @@
     "typecheck": "tsc --project tsconfig.json",
     "benchmark": "node benchmark/run-benchmark.js",
     "benchmark:nexus-vs-raw": "node benchmark/run-nexus-comparison.js",
+    "benchmark:nexus-repo": "node benchmark/run-nexus-comparison.js --file benchmark/nexus-repo-benchmark.json",
+    "mitosis": "node -e \"import('./src/orchestration/agent-synthesizer.js').then(m => m.runMitosisPipeline({ project: process.env.PROJECT || 'nexus', dataDir: '.' })).then(r => console.log(m.formatMitosisReport(r))).catch(console.error)\"",
+    "agents:synthesize": "node -e \"import('./src/orchestration/agent-synthesizer.js').then(async m => { const r = await m.runMitosisPipeline({ project: process.env.PROJECT || 'nexus', dataDir: '.' }); console.log(m.formatMitosisReport(r)); })\"",
+    "agents:list": "node -e \"import('./src/orchestration/agent-synthesizer.js').then(async m => { const a = await m.listAgents({ dataDir: '.' }); a.forEach(x => console.log('[' + x.id + '] ' + x.domain + ' v' + x.version + ' maturity=' + (x.maturityScore*100).toFixed(0) + '%')); })\"",
     "benchmark:foundations": "node benchmark/run-foundations-stress.js",
     "benchmark:recall": "node benchmark/run-recall-benchmark.js",
     "benchmark:vertical": "node benchmark/run-vertical-benchmark.js",
@@ -75,5 +79,8 @@
   },
   "dependencies": {
     "pdf-parse": "^2.4.5"
+  },
+  "optionalDependencies": {
+    "ruflo": "^3.5.48"
   }
 }

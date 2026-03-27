@@ -5,8 +5,9 @@ import path from "node:path";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 
-import { defaultProjectConfig } from "../contracts/config-contracts.js";
+import { defaultProjectConfig, parseProjectConfig } from "../contracts/config-contracts.js";
 import { writeTextFile } from "../io/text-file.js";
+import { isRufloAvailable } from "../memory/ruflo-memory-adapter.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -22,6 +23,46 @@ async function pathExists(targetPath) {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * @param {string} cwd
+ */
+async function resolveProductionSafetyProfile(cwd) {
+  const candidatePath = path.join(cwd, "learning-context.config.production.json");
+
+  if (!(await pathExists(candidatePath))) {
+    return {
+      found: false,
+      strict: false,
+      path: "",
+      allowedScopePaths: []
+    };
+  }
+
+  try {
+    const raw = await readFile(candidatePath, "utf8");
+    const parsed = parseProjectConfig(raw, candidatePath);
+    const allowedScopePaths = Array.isArray(parsed.safety?.allowedScopePaths)
+      ? parsed.safety.allowedScopePaths.filter(Boolean)
+      : [];
+    const strict =
+      parsed.safety?.requirePlanForWrite === true && allowedScopePaths.length > 0;
+
+    return {
+      found: true,
+      strict,
+      path: candidatePath,
+      allowedScopePaths
+    };
+  } catch {
+    return {
+      found: true,
+      strict: false,
+      path: candidatePath,
+      allowedScopePaths: []
+    };
   }
 }
 
@@ -261,17 +302,21 @@ export async function runProjectDoctor(input) {
       : ""
   });
 
+  const productionSafetyProfile = await resolveProductionSafetyProfile(cwd);
   const strictSafetyEnabled =
     configInfo.config.safety.requirePlanForWrite === true &&
     configInfo.config.safety.allowedScopePaths.length > 0;
+  const productionStrictSafetyEnabled = productionSafetyProfile.strict === true;
   checks.push({
     id: "task-safety-gate",
     label: "Task safety gate",
-    status: strictSafetyEnabled ? "pass" : "warn",
+    status: strictSafetyEnabled || productionStrictSafetyEnabled ? "pass" : "warn",
     detail: strictSafetyEnabled
       ? `Plan gate enabled and scope locked (${configInfo.config.safety.allowedScopePaths.join(", ")}).`
-      : "Safety gate is permissive (plan gate disabled or scope paths empty).",
-    fix: strictSafetyEnabled
+      : productionStrictSafetyEnabled
+        ? `Active config is permissive, but production profile is locked (${productionSafetyProfile.allowedScopePaths.join(", ")}) via ${productionSafetyProfile.path}.`
+        : "Safety gate is permissive (plan gate disabled or scope paths empty).",
+    fix: strictSafetyEnabled || productionStrictSafetyEnabled
       ? ""
       : "Set config.safety.requirePlanForWrite=true and define config.safety.allowedScopePaths for production workflows."
   });
@@ -292,55 +337,70 @@ export async function runProjectDoctor(input) {
   });
 
   const memoryBackend = configInfo.config.memory.backend || "resilient";
-  const engramEnabledByBackend = memoryBackend !== "local-only";
   checks.push({
     id: "memory-backend",
     label: "Memory backend mode",
     status: memoryBackend === "resilient" ? "pass" : "warn",
     detail:
       memoryBackend === "resilient"
-        ? "resilient (Engram primary + local fallback)."
-        : memoryBackend === "engram-only"
-          ? "engram-only (no local fallback)."
-          : "local-only (Engram disabled by config).",
+        ? "resilient (Ruflo HNSW primary + local JSONL fallback)."
+        : "local-only (Ruflo disabled by config).",
     fix:
       memoryBackend === "resilient"
         ? ""
-        : "Prefer memory.backend='resilient' for production reliability unless you intentionally need single-provider mode."
+        : "Prefer memory.backend='resilient' for semantic recall with Ruflo plus local fallback."
   });
 
-  const engramBinary = path.resolve(cwd, configInfo.config.engram.binaryPath || "tools/engram/engram.exe");
-  const engramBinaryExists = await pathExists(engramBinary);
+  const rufloAvailable = await isRufloAvailable();
   checks.push({
-    id: "engram-binary",
-    label: "Engram binary",
-    status: engramEnabledByBackend ? (engramBinaryExists ? "pass" : "warn") : "pass",
-    detail: engramEnabledByBackend
-      ? engramBinaryExists
-        ? engramBinary
-        : `Not found: ${engramBinary}`
-      : `Skipped because memory.backend='${memoryBackend}'.`,
+    id: "ruflo-memory",
+    label: "Ruflo HNSW memory",
+    status: memoryBackend === "local-only" || rufloAvailable ? "pass" : "warn",
+    detail:
+      memoryBackend === "local-only"
+        ? `Skipped because memory.backend='${memoryBackend}'.`
+        : rufloAvailable
+          ? "Ruflo available — semantic HNSW recall active."
+          : "Ruflo not found — semantic recall will degrade to the local JSONL store.",
     fix:
-      !engramEnabledByBackend || engramBinaryExists
+      memoryBackend === "local-only" || rufloAvailable
         ? ""
-        : "Install Engram or point config.engram.binaryPath to the correct binary."
+        : "Install Ruflo or run with --memory-backend local-only / --skip-ruflo true until the semantic tier is available."
   });
 
-  const engramDataDir = path.resolve(cwd, configInfo.config.engram.dataDir || ".engram");
-  const engramDataExists = await pathExists(engramDataDir);
+  const localMemoryDir = path.resolve(cwd, ".lcs/memory");
+  const localMemoryExists = await pathExists(localMemoryDir);
   checks.push({
-    id: "engram-data",
-    label: "Engram data directory",
-    status: engramEnabledByBackend ? (engramDataExists ? "pass" : "warn") : "pass",
-    detail: engramEnabledByBackend
-      ? engramDataExists
-        ? engramDataDir
-        : `Missing data dir: ${engramDataDir}`
-      : `Skipped because memory.backend='${memoryBackend}'.`,
+    id: "local-memory",
+    label: "Local JSONL memory store",
+    status: "pass",
+    detail: localMemoryExists
+      ? localMemoryDir
+      : `Will be created on first successful local memory write: ${localMemoryDir}`,
+    fix: ""
+  });
+
+  const engramBatteryPath = path.resolve(cwd, configInfo.config.engram.binaryPath || "tools/engram/engram.exe");
+  const engramBatteryExists = await pathExists(engramBatteryPath);
+  checks.push({
+    id: "engram-battery",
+    label: "Engram external battery",
+    status:
+      memoryBackend === "local-only"
+        ? "pass"
+        : engramBatteryExists
+          ? "pass"
+          : "warn",
+    detail:
+      memoryBackend === "local-only"
+        ? "Skipped because memory.backend='local-only'."
+        : engramBatteryExists
+          ? `Available as external battery only: ${engramBatteryPath}`
+          : `Optional external battery not available: ${engramBatteryPath}`,
     fix:
-      !engramEnabledByBackend || engramDataExists
+      memoryBackend === "local-only" || engramBatteryExists
         ? ""
-        : "The directory will be created on first successful Engram write."
+        : "Install or place the Engram binary only if you want third-tier contingency memory. NEXUS remains canonical on Ruflo + local."
   });
 
   const summary = checks.reduce(

@@ -1,5 +1,28 @@
 export type ChunkKind = "code" | "test" | "spec" | "memory" | "doc" | "chat" | "log";
 
+/**
+ * Structural symbols extracted from a code chunk by the symbol extractor (NEXUS:1).
+ * Populated by symbol-extractor.js; used by the noise-canceler for structural scoring.
+ */
+export interface ChunkSymbols {
+  imports: string[];
+  exports: string[];
+  functions: string[];
+  classes: string[];
+  interfaces: string[];
+  types: string[];
+  dependencies: string[];
+}
+
+/**
+ * Processing metadata attached to a chunk after NEXUS:1 enrichment.
+ */
+export interface ChunkProcessing {
+  symbols?: ChunkSymbols;
+  /** Structural match score cached from the last selection pass [0,1] */
+  structuralScore?: number;
+}
+
 export interface Chunk {
   id: string;
   source: string;
@@ -13,6 +36,8 @@ export interface Chunk {
   tags?: Record<string, unknown>;
   retrievalScore?: number;
   vectorScore?: number;
+  /** Structural metadata from NEXUS:1 symbol extraction */
+  processing?: ChunkProcessing;
 }
 
 export interface ChunkFile {
@@ -27,6 +52,10 @@ export interface ChunkDiagnostics {
   teachingValue: number;
   priority: number;
   density: number;
+  structuralOverlap: number;
+  structuralPublicSurface: number;
+  structuralDependency: number;
+  structuralSignalCount: number;
   sourceAffinity: number;
   changeAnchor: number;
   changeAnchorWeight: number;
@@ -43,7 +72,7 @@ export interface ChunkDiagnostics {
 }
 
 export interface SelectedChunk extends Chunk {
-  origin: "engram" | "workspace";
+  origin: "memory" | "workspace";
   tokenCount: number;
   score: number;
   diagnostics: ChunkDiagnostics;
@@ -53,7 +82,7 @@ export interface SuppressedChunk {
   id: string;
   source: string;
   kind: ChunkKind;
-  origin?: "engram" | "workspace";
+  origin?: "memory" | "workspace";
   tokenCount?: number;
   reason: string;
   score: number;
@@ -76,6 +105,9 @@ export interface ScoringWeights {
   teachingValue?: number;
   priority?: number;
   density?: number;
+  structuralOverlap?: number;
+  structuralPublicSurface?: number;
+  structuralDependency?: number;
   sourceAffinity?: number;
   implementationFit?: number;
   retrievalBoost?: number;
@@ -191,7 +223,7 @@ export interface PacketChunk {
   score: number;
   content: string;
   memoryType?: string;
-  origin?: "engram" | "workspace";
+  origin?: "memory" | "workspace";
   tokenCount?: number;
   diagnostics?: ChunkDiagnostics;
 }
@@ -202,7 +234,7 @@ export interface PacketSuppressedChunk {
   score: number;
   source?: string;
   kind?: ChunkKind;
-  origin?: "engram" | "workspace";
+  origin?: "memory" | "workspace";
   tokenCount?: number;
   diagnostics?: ChunkDiagnostics;
 }
@@ -238,6 +270,9 @@ export interface MemoryRecallState {
   status: "disabled" | "skipped" | "recalled" | "empty" | "failed";
   degraded: boolean;
   reason: string;
+  provider?: string;
+  providerChain?: string[];
+  fallbackProvider?: string;
   query: string;
   queriesTried: string[];
   matchedQueries: string[];
@@ -278,6 +313,16 @@ export interface MemorySaveInput {
   project?: string;
   scope?: string;
   topic?: string;
+  sourceKind?: string;
+  protected?: boolean;
+  reviewStatus?: string;
+  signalScore?: number;
+  duplicateScore?: number;
+  durabilityScore?: number;
+  healthScore?: number;
+  reviewReasons?: string[];
+  expiresAt?: string;
+  supersedes?: string[];
 }
 
 export interface MemoryCloseInput {
@@ -288,6 +333,16 @@ export interface MemoryCloseInput {
   project?: string;
   scope?: string;
   type?: string;
+  sourceKind?: string;
+  protected?: boolean;
+  reviewStatus?: string;
+  signalScore?: number;
+  duplicateScore?: number;
+  durabilityScore?: number;
+  healthScore?: number;
+  reviewReasons?: string[];
+  expiresAt?: string;
+  supersedes?: string[];
 }
 
 export interface MemoryEntry {
@@ -299,12 +354,24 @@ export interface MemoryEntry {
   scope: string;
   topic: string;
   createdAt: string;
+  sourceKind?: string;
+  protected?: boolean;
+  reviewStatus?: string;
+  signalScore?: number;
+  duplicateScore?: number;
+  durabilityScore?: number;
+  healthScore?: number;
+  reviewReasons?: string[];
+  expiresAt?: string;
+  supersedes?: string[];
 }
 
 export interface MemorySearchResult {
   entries: MemoryEntry[];
   stdout: string;
   provider: string;
+  providerChain?: string[];
+  fallbackProvider?: string;
   degraded?: boolean;
   warning?: string;
   error?: string;
@@ -316,6 +383,8 @@ export interface MemorySaveResult {
   id: string;
   stdout: string;
   provider: string;
+  providerChain?: string[];
+  fallbackProvider?: string;
   degraded?: boolean;
   warning?: string;
 }
@@ -328,7 +397,7 @@ export interface MemoryHealthResult {
 
 /**
  * Formal contract for all memory backends.
- * Implemented by: LocalProvider, EngramProvider, ResilientProvider.
+ * Implemented by: LocalProvider, ExternalBatteryProvider, ResilientProvider.
  */
 export interface MemoryProvider {
   readonly name: string;
@@ -455,6 +524,7 @@ export interface ApiRequest {
   path: string;
   body: Record<string, unknown>;
   headers: Record<string, string>;
+  query: Record<string, string>;
 }
 
 export interface ApiResponse {
@@ -885,4 +955,95 @@ export interface HybridRetriever {
     kindFilter?: ChunkKind[];
   }): HybridResult[];
   size(): number;
+}
+
+// ── Code Gate Contracts (NEXUS:4 GUARD) ──────────────────────────────
+
+/** Status of a Code Gate run */
+export type CodeGateStatus = "pass" | "fail" | "skipped" | "degraded";
+
+/** A single structured error from a gate tool */
+export interface CodeGateError {
+  file?: string;
+  line?: number;
+  column?: number;
+  code?: string;
+  message: string;
+  severity: "error" | "warning";
+  tool: "lint" | "typecheck" | "build" | "test";
+}
+
+/** Result of running one Code Gate tool */
+export interface CodeGateToolResult {
+  tool: "lint" | "typecheck" | "build" | "test";
+  status: CodeGateStatus;
+  errors: CodeGateError[];
+  durationMs: number;
+  raw?: string;
+}
+
+/** Aggregate result of the full Code Gate */
+export interface CodeGateResult {
+  status: CodeGateStatus;
+  tools: CodeGateToolResult[];
+  errorCount: number;
+  warningCount: number;
+  durationMs: number;
+  passed: boolean;
+}
+
+// ── Axiom Memory Contracts (NEXUS:2 / NEXUS:9) ───────────────────────
+
+export type AxiomType =
+  | "code-axiom"
+  | "library-gotcha"
+  | "security-rule"
+  | "testing-pattern"
+  | "api-contract";
+
+/** A stored axiom — reusable knowledge for codegen */
+export interface Axiom {
+  id: string;
+  type: AxiomType;
+  title: string;
+  body: string;
+  /** Language scope: "typescript", "python", "*" */
+  language: string;
+  /** Path prefix scope: "src/auth", "*" */
+  pathScope: string;
+  /** Framework scope: "express", "react", "*" */
+  framework: string;
+  /** Version constraint: ">=18.0.0", "*" */
+  version?: string;
+  createdAt: string;
+  expiresAt?: string;
+  tags: string[];
+}
+
+// ── Architecture Gate Contracts (NEXUS:4 / NEXUS:10) ─────────────────
+
+/** A declared architecture boundary rule */
+export interface ArchitectureRule {
+  id: string;
+  description: string;
+  type: "forbidden-import" | "layer-crossing" | "allowed-boundary";
+  from?: string;
+  to?: string;
+  pattern?: string;
+}
+
+/** Result of an architecture gate check */
+export interface ArchitectureViolation {
+  rule: string;
+  file: string;
+  line?: number;
+  importPath?: string;
+  description: string;
+}
+
+export interface ArchitectureGateResult {
+  passed: boolean;
+  violations: ArchitectureViolation[];
+  checkedFiles: number;
+  durationMs: number;
 }

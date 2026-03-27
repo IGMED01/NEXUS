@@ -10,13 +10,27 @@ import { loadProjectConfig } from "../io/config-file.js";
 import { loadChunkFile } from "../io/json-file.js";
 import { writeTextFile } from "../io/text-file.js";
 import { loadWorkspaceChunks } from "../io/workspace-chunks.js";
-import { createEngramClient, searchOutputToChunks } from "../memory/engram-client.js";
+import { createEngramClient as createEngramBatteryClient } from "../memory/engram-client.js";
+import { createExternalBatteryMemoryClient } from "../memory/external-battery-memory-client.js";
 import { createLocalMemoryStore } from "../memory/local-memory-store.js";
 import {
+  buildAcceptedMemoryMetadata,
+  evaluateMemoryWrite,
+  quarantineMemoryWrite,
+  runMemoryCompact,
+  runMemoryDoctor,
+  runMemoryPrune,
+  runMemoryStats
+} from "../memory/memory-hygiene.js";
+import {
+  buildCloseSummaryContent,
+  legacySearchStdoutToEntries
+} from "../memory/memory-utils.js";
+import {
   classifyMemoryFailure,
-  createResilientMemoryClient,
   memoryFailureFixHint
 } from "../memory/resilient-memory-client.js";
+import { createRufloResilientClient } from "../memory/ruflo-resilient-client.js";
 import {
   getObservabilityReport,
   recordCommandMetric
@@ -31,7 +45,11 @@ import { initProjectConfig, runProjectDoctor } from "../system/project-ops.js";
 import {
   formatDoctorResultAsText,
   formatInitResultAsText,
+  formatMemoryCompactAsText,
+  formatMemoryDoctorAsText,
+  formatMemoryPruneAsText,
   formatMemoryRecallAsText,
+  formatMemoryStatsAsText,
   formatMemoryWriteAsText,
   formatNotionSyncAsText,
   formatSecurityIngestAsText,
@@ -62,7 +80,7 @@ import {
  */
 
 /**
- * @typedef {"resilient" | "engram-only" | "local-only"} MemoryBackendMode
+ * @typedef {"resilient" | "local-only"} MemoryBackendMode
  */
 
 /**
@@ -94,19 +112,31 @@ import {
 /**
  * @typedef {{
  *   config?: { dataDir?: string, filePath?: string },
- *   recallContext: (project?: string) => Promise<Record<string, unknown> & { stdout?: string }>,
- *   searchMemories: (
+ *   search?: (
  *     query: string,
  *     options?: { project?: string, scope?: string, type?: string, limit?: number }
- *   ) => Promise<Record<string, unknown> & { stdout: string }>,
- *   saveMemory: (input: {
+ *   ) => Promise<import("../types/core-contracts.d.ts").MemorySearchResult>,
+ *   searchMemories?: (
+ *     query: string,
+ *     options?: { project?: string, scope?: string, type?: string, limit?: number }
+ *   ) => Promise<Record<string, unknown> & { stdout?: string }>,
+ *   save?: (input: {
  *     title: string,
  *     content: string,
  *     type?: string,
-   *     project?: string,
-   *     scope?: string,
-   *     topic?: string
+ *     project?: string,
+ *     scope?: string,
+ *     topic?: string
  *   }) => Promise<Record<string, unknown>>,
+ *   saveMemory?: (input: {
+ *     title: string,
+ *     content: string,
+ *     type?: string,
+ *     project?: string,
+ *     scope?: string,
+ *     topic?: string
+ *   }) => Promise<Record<string, unknown>>,
+ *   recallContext: (project?: string) => Promise<Record<string, unknown> & { stdout?: string }>,
  *   closeSession: (input: {
  *     summary: string,
  *     learned?: string,
@@ -120,15 +150,18 @@ import {
  */
 
 /**
+ * Legacy note: engramClient remains only for test/compat injection.
  * @typedef {{
+ *   memoryClient?: MemoryClientLike,
  *   engramClient?: MemoryClientLike,
+ *   externalBatteryClient?: MemoryClientLike,
  *   localMemoryClient?: MemoryClientLike,
  *   notionClient?: ReturnType<typeof createNotionSyncClient>
  * }} AppDependencies
  */
 
 /**
- * @typedef {"select" | "teach" | "readme" | "recall" | "remember" | "close" | "doctor" | "init" | "sync-knowledge" | "ingest-security" | "ingest" | "version" | "shell"} CliCommand
+ * @typedef {"select" | "teach" | "readme" | "recall" | "remember" | "close" | "doctor" | "doctor-memory" | "memory-stats" | "prune-memory" | "compact-memory" | "init" | "sync-knowledge" | "ingest-security" | "ingest" | "version" | "shell"} CliCommand
  */
 
 /**
@@ -179,6 +212,7 @@ import {
  *   type?: string,
  *   scope?: string,
  *   limit?: number | null,
+ *   entries?: import("../types/core-contracts.d.ts").MemoryEntry[],
  *   stdout?: string,
  *   stderr?: string,
  *   dataDir?: string,
@@ -435,29 +469,17 @@ function parseMemoryBackendMode(value) {
     return "resilient";
   }
 
-  if (value === "resilient" || value === "engram-only" || value === "local-only") {
+  if (value === "engram-only") {
+    return "resilient";
+  }
+
+  if (value === "resilient" || value === "local-only") {
     return value;
   }
 
   throw new Error(
-    "Option --memory-backend must be one of: resilient, engram-only, local-only."
+    "Option --memory-backend must be one of: resilient, local-only."
   );
-}
-
-/**
- * @param {CliOptions} options
- * @param {AppDependencies} dependencies
- * @returns {MemoryClientLike}
- */
-function getEngramClient(options, dependencies) {
-  if (dependencies.engramClient) {
-    return dependencies.engramClient;
-  }
-
-  return createEngramClient({
-    binaryPath: options["engram-bin"],
-    dataDir: options["engram-data-dir"]
-  });
 }
 
 /**
@@ -479,35 +501,235 @@ function getLocalMemoryClient(options, dependencies) {
  * @param {CliOptions} options
  * @param {AppDependencies} dependencies
  */
-function getMemoryClient(options, dependencies) {
-  const backendMode = parseMemoryBackendMode(options["memory-backend"]);
+function getExternalBatteryMemoryClient(options, dependencies) {
+  if (dependencies.externalBatteryClient) {
+    return dependencies.externalBatteryClient;
+  }
 
-  if (backendMode !== "local-only" && dependencies.engramClient && !dependencies.localMemoryClient) {
+  return createEngramBatteryClient({
+    binaryPath: options["engram-bin"],
+    dataDir: options["engram-data-dir"],
+    cwd: process.cwd()
+  });
+}
+
+function defaultMemoryBaseDir() {
+  const explicit = process.env.LCS_TEST_MEMORY_BASE_DIR || process.env.LCS_MEMORY_BASE_DIR;
+  return explicit && explicit.trim() ? explicit.trim() : "";
+}
+
+function defaultMemoryFallbackFile() {
+  const explicit =
+    process.env.LCS_TEST_MEMORY_FALLBACK_FILE || process.env.LCS_MEMORY_FALLBACK_FILE;
+  return explicit && explicit.trim() ? explicit.trim() : ".lcs/local-memory-store.jsonl";
+}
+
+function defaultMemoryQuarantineDir() {
+  const explicit =
+    process.env.LCS_TEST_MEMORY_QUARANTINE_DIR || process.env.LCS_MEMORY_QUARANTINE_DIR;
+  return explicit && explicit.trim() ? explicit.trim() : "";
+}
+
+/**
+ * @param {AppDependencies} dependencies
+ * @returns {MemoryClientLike | null}
+ */
+function getInjectedMemoryClient(dependencies) {
+  if (dependencies.memoryClient) {
+    return dependencies.memoryClient;
+  }
+
+  if (dependencies.engramClient) {
     return dependencies.engramClient;
   }
+
+  return null;
+}
+
+/**
+ * @param {CliOptions} options
+ * @param {AppDependencies} dependencies
+ */
+function getMemoryClient(options, dependencies) {
+  const injectedMemoryClient = getInjectedMemoryClient(dependencies);
+  if (injectedMemoryClient) {
+    return injectedMemoryClient;
+  }
+
+  const backendMode = parseMemoryBackendMode(options["memory-backend"]);
 
   if (backendMode === "local-only") {
     return getLocalMemoryClient(options, dependencies);
   }
 
-  const primary = getEngramClient(options, dependencies);
-
-  if (backendMode === "engram-only") {
-    return primary;
-  }
-
-  const fallback = getLocalMemoryClient(options, dependencies);
+  const local = getLocalMemoryClient(options, dependencies);
   const fallbackEnabled = booleanOption(options, "local-memory-fallback", true);
+  const batteryEnabled = booleanOption(options, "external-battery", true);
+  const primaryChain = createRufloResilientClient({
+    local,
+    project: options.project,
+    enabled: fallbackEnabled,
+    skipRuflo: booleanOption(options, "skip-ruflo", false)
+  });
 
-  if (!fallbackEnabled) {
-    return primary;
+  if (!batteryEnabled) {
+    return primaryChain;
   }
 
-  return createResilientMemoryClient({
-    primary,
-    fallback,
+  return createExternalBatteryMemoryClient({
+    primary: /** @type {any} */ (primaryChain),
+    battery: /** @type {any} */ (getExternalBatteryMemoryClient(options, dependencies)),
     enabled: true
   });
+}
+
+/**
+ * @param {MemoryClientLike} memoryClient
+ * @param {string} query
+ * @param {{ project?: string, scope?: string, type?: string, limit?: number }} [options]
+ * @returns {Promise<RecallCommandResult>}
+ */
+async function searchMemoryClient(memoryClient, query, options = {}) {
+  if (typeof memoryClient.search === "function") {
+    return /** @type {RecallCommandResult} */ (await memoryClient.search(query, options));
+  }
+
+  if (typeof memoryClient.searchMemories !== "function") {
+    throw new Error("Legacy searchMemories() is not supported by the configured memory client.");
+  }
+
+  const legacyResult = /** @type {Record<string, unknown>} */ (
+    await memoryClient.searchMemories(query, options)
+  );
+  const legacyStdout =
+    typeof legacyResult.stdout === "string" ? legacyResult.stdout : "";
+
+  return {
+    mode: "search",
+    query,
+    project: options.project ?? "",
+    scope: options.scope ?? "",
+    type: options.type ?? "",
+    limit: options.limit ?? 5,
+    entries:
+      Array.isArray(legacyResult.entries) && legacyResult.entries.length
+        ? legacyResult.entries
+        : legacySearchStdoutToEntries(legacyStdout, { project: options.project }),
+    stdout: legacyStdout,
+    stderr: typeof legacyResult.stderr === "string" ? legacyResult.stderr : "",
+    dataDir: typeof legacyResult.dataDir === "string" ? legacyResult.dataDir : "",
+    filePath: typeof legacyResult.filePath === "string" ? legacyResult.filePath : "",
+    provider:
+      typeof legacyResult.provider === "string" && legacyResult.provider.trim()
+        ? legacyResult.provider
+        : "memory",
+    degraded: legacyResult.degraded === true,
+    warning: typeof legacyResult.warning === "string" ? legacyResult.warning : undefined,
+    error: typeof legacyResult.error === "string" ? legacyResult.error : undefined,
+    failureKind:
+      typeof legacyResult.failureKind === "string" ? legacyResult.failureKind : undefined,
+    fixHint: typeof legacyResult.fixHint === "string" ? legacyResult.fixHint : undefined
+  };
+}
+
+/**
+ * @param {MemoryClientLike} memoryClient
+ * @param {import("../types/core-contracts.d.ts").MemorySaveInput} input
+ * @returns {Promise<MemoryWriteCommandResult>}
+ */
+async function saveMemoryClient(memoryClient, input) {
+  if (typeof memoryClient.save === "function") {
+    const saved = /** @type {Record<string, unknown>} */ (await memoryClient.save(input));
+    return {
+      action: "save",
+      title: input.title,
+      content: input.content,
+      type: input.type ?? "learning",
+      project: input.project ?? "",
+      scope: input.scope ?? "project",
+      topic: input.topic ?? "",
+      stdout: typeof saved.stdout === "string" ? saved.stdout : "",
+      dataDir: memoryClient.config?.dataDir ?? "",
+      filePath: memoryClient.config?.filePath,
+      provider: typeof saved.provider === "string" ? saved.provider : "memory",
+      degraded: saved.degraded === true,
+      warning: typeof saved.warning === "string" ? saved.warning : undefined
+    };
+  }
+
+  if (typeof memoryClient.saveMemory !== "function") {
+    throw new Error("saveMemory() not supported by the configured memory client.");
+  }
+
+  const legacy = /** @type {Record<string, unknown>} */ (await memoryClient.saveMemory(input));
+  return {
+    action: typeof legacy.action === "string" ? legacy.action : "save",
+    title: input.title,
+    content: input.content,
+    type: input.type ?? "learning",
+    project: input.project ?? "",
+    scope: input.scope ?? "project",
+    topic: input.topic ?? "",
+    stdout: typeof legacy.stdout === "string" ? legacy.stdout : "",
+    dataDir:
+      typeof legacy.dataDir === "string"
+        ? legacy.dataDir
+        : memoryClient.config?.dataDir ?? "",
+    filePath:
+      typeof legacy.filePath === "string" ? legacy.filePath : memoryClient.config?.filePath,
+    provider:
+      typeof legacy.provider === "string" && legacy.provider.trim()
+        ? legacy.provider
+        : "memory",
+    degraded: legacy.degraded === true,
+    warning: typeof legacy.warning === "string" ? legacy.warning : undefined,
+    error: typeof legacy.error === "string" ? legacy.error : undefined
+  };
+}
+
+/**
+ * @param {MemoryClientLike} memoryClient
+ * @param {import("../types/core-contracts.d.ts").MemoryCloseInput} input
+ * @returns {Promise<MemoryWriteCommandResult>}
+ */
+async function closeMemoryClient(memoryClient, input) {
+  const closedAt = new Date().toISOString();
+  const title = input.title ?? `Session close - ${closedAt.slice(0, 10)}`;
+  const content = buildCloseSummaryContent({
+    summary: input.summary,
+    learned: input.learned,
+    next: input.next,
+    workspace: process.cwd(),
+    closedAt
+  });
+  const result = /** @type {Record<string, unknown>} */ (await memoryClient.closeSession(input));
+
+  return {
+    action: typeof result.action === "string" ? result.action : "close",
+    title: typeof result.title === "string" && result.title ? result.title : title,
+    summary: input.summary,
+    learned: input.learned ?? "",
+    next: input.next ?? "",
+    content: typeof result.content === "string" && result.content ? result.content : content,
+    type: input.type ?? "learning",
+    project: input.project ?? "",
+    scope: input.scope ?? "project",
+    topic: typeof result.topic === "string" ? result.topic : "",
+    stdout: typeof result.stdout === "string" ? result.stdout : "",
+    dataDir:
+      typeof result.dataDir === "string"
+        ? result.dataDir
+        : memoryClient.config?.dataDir ?? "",
+    filePath:
+      typeof result.filePath === "string" ? result.filePath : memoryClient.config?.filePath,
+    provider:
+      typeof result.provider === "string" && result.provider.trim()
+        ? result.provider
+        : "memory",
+    degraded: result.degraded === true,
+    warning: typeof result.warning === "string" ? result.warning : undefined,
+    error: typeof result.error === "string" ? result.error : undefined
+  };
 }
 
 /**
@@ -644,6 +866,14 @@ function isWriteModeCommand(command, options) {
     return true;
   }
 
+  if (command === "prune-memory") {
+    return booleanOption(options, "apply", false);
+  }
+
+  if (command === "compact-memory") {
+    return booleanOption(options, "apply", false);
+  }
+
   if (command === "readme" || command === "ingest-security") {
     return Boolean(options.output);
   }
@@ -757,6 +987,10 @@ function isSupportedCommand(command) {
     command === "remember" ||
     command === "close" ||
     command === "doctor" ||
+    command === "doctor-memory" ||
+    command === "memory-stats" ||
+    command === "prune-memory" ||
+    command === "compact-memory" ||
     command === "init" ||
     command === "sync-knowledge" ||
     command === "ingest-security" ||
@@ -830,24 +1064,42 @@ function applyConfigDefaults(command, rawOptions, loadedConfig) {
     options["auto-remember"] = String(config.memory.autoRemember);
   }
 
-  if (!options["engram-bin"] && config.engram.binaryPath) {
-    options["engram-bin"] = config.engram.binaryPath;
-  }
-
-  if (!options["engram-data-dir"] && config.engram.dataDir) {
-    options["engram-data-dir"] = config.engram.dataDir;
+  if (!options["memory-base-dir"]) {
+    const fallbackBaseDir = defaultMemoryBaseDir();
+    if (fallbackBaseDir) {
+      options["memory-base-dir"] = fallbackBaseDir;
+    }
   }
 
   if (!options["memory-fallback-file"]) {
-    options["memory-fallback-file"] = ".lcs/local-memory-store.jsonl";
+    options["memory-fallback-file"] = defaultMemoryFallbackFile();
+  }
+
+  if (!options["memory-quarantine-dir"]) {
+    const fallbackQuarantineDir = defaultMemoryQuarantineDir();
+    if (fallbackQuarantineDir) {
+      options["memory-quarantine-dir"] = fallbackQuarantineDir;
+    }
   }
 
   if (!options["local-memory-fallback"]) {
     options["local-memory-fallback"] = "true";
   }
 
+  if (!options["external-battery"]) {
+    options["external-battery"] = "true";
+  }
+
   if (!options["memory-backend"]) {
     options["memory-backend"] = config.memory.backend || "resilient";
+  }
+
+  if (!options["engram-bin"] && config.engram?.binaryPath) {
+    options["engram-bin"] = config.engram.binaryPath;
+  }
+
+  if (!options["engram-data-dir"] && config.engram?.dataDir) {
+    options["engram-data-dir"] = config.engram.dataDir;
   }
 
   if (!options.format && config.output.defaultFormat) {
@@ -874,7 +1126,7 @@ function applyConfigDefaults(command, rawOptions, loadedConfig) {
  *   type?: string,
  *   scope?: string,
  *   limit?: number,
- *   provider?: "engram" | "local"
+ *   provider?: "memory" | "local"
  * }} input
  * @param {unknown} error
  * @returns {RecallCommandResult}
@@ -883,7 +1135,7 @@ function buildDegradedRecallResult(memoryClient, input, error) {
   const message = error instanceof Error ? error.message : String(error);
   const failureKind = classifyMemoryFailure(error);
   const fixHint = memoryFailureFixHint(failureKind);
-  const provider = input.provider ?? "engram";
+  const provider = input.provider ?? "memory";
   const warning = `Memory backend '${provider}' unavailable; returning an empty recall result in degraded mode (${failureKind}).`;
 
   return {
@@ -1054,6 +1306,8 @@ export async function runCli(argv, dependencies = {}) {
     command === "recall" ||
     command === "remember" ||
     command === "close" ||
+    command === "doctor-memory" ||
+    command === "prune-memory" ||
     command === "sync-knowledge" ||
     command === "ingest-security" ||
     command === "ingest" ||
@@ -1232,12 +1486,170 @@ export async function runCli(argv, dependencies = {}) {
     };
   }
 
+  if (command === "doctor-memory") {
+    const result = await runMemoryDoctor({
+      cwd: process.cwd(),
+      project: options.project,
+      baseDir: options["memory-base-dir"]
+    });
+    const degraded = result.summary.quarantineCandidates > 0;
+    const metric = buildCommandMetric("doctor-memory", startedAt, { degraded });
+    await safeRecordCommandMetric(metric);
+    const payload = {
+      ...result,
+      observability: buildObservabilityEvent(metric)
+    };
+
+    return {
+      exitCode: 0,
+      stdout:
+        format === "text"
+          ? formatMemoryDoctorAsText(result)
+          : serializeCommandResult(
+              "doctor-memory",
+              payload,
+              format,
+              loadedConfig,
+              {
+                degraded,
+                warnings:
+                  degraded && result.summary.quarantineCandidates > 0
+                    ? [`${result.summary.quarantineCandidates} memory entries need quarantine review.`]
+                    : [],
+                ...buildRuntimeMeta(startedAt)
+              }
+            )
+    };
+  }
+
+  if (command === "memory-stats") {
+    const result = await runMemoryStats({
+      cwd: process.cwd(),
+      project: options.project,
+      baseDir: options["memory-base-dir"]
+    });
+    const degraded =
+      result.metrics.noiseRate > 0 || result.metrics.candidateRate > 0 || result.metrics.quarantineRate > 0;
+    const metric = buildCommandMetric("memory-stats", startedAt, { degraded });
+    await safeRecordCommandMetric(metric);
+    const payload = {
+      ...result,
+      observability: buildObservabilityEvent(metric)
+    };
+
+    return {
+      exitCode: 0,
+      stdout:
+        format === "text"
+          ? formatMemoryStatsAsText(result)
+          : serializeCommandResult(
+              "memory-stats",
+              payload,
+              format,
+              loadedConfig,
+              {
+                degraded,
+                warnings:
+                  degraded
+                    ? [
+                        `Memory health avg=${result.metrics.averageHealthScore}, candidateRate=${result.metrics.candidateRate}, noiseRate=${result.metrics.noiseRate}.`
+                      ]
+                    : [],
+                ...buildRuntimeMeta(startedAt)
+              }
+            )
+    };
+  }
+
+  if (command === "prune-memory") {
+    const apply = booleanOption(options, "apply", false);
+    const pruneResult = await runMemoryPrune({
+      cwd: process.cwd(),
+      project: options.project,
+      baseDir: options["memory-base-dir"],
+      quarantineDir: options["memory-quarantine-dir"],
+      apply
+    });
+    const degraded = pruneResult.summary.candidates > 0;
+    const metric = buildCommandMetric("prune-memory", startedAt, { degraded });
+    await safeRecordCommandMetric(metric);
+    const payload = {
+      ...pruneResult,
+      observability: buildObservabilityEvent(metric)
+    };
+
+    return {
+      exitCode: 0,
+      stdout:
+        format === "text"
+          ? formatMemoryPruneAsText(pruneResult)
+          : serializeCommandResult(
+              "prune-memory",
+              payload,
+              format,
+              loadedConfig,
+              {
+                degraded,
+                warnings:
+                  pruneResult.summary.candidates > 0
+                    ? apply
+                      ? [`${pruneResult.summary.moved} memory entries moved to quarantine.`]
+                      : [`${pruneResult.summary.candidates} memory entries would move to quarantine.`]
+                    : [],
+                ...buildRuntimeMeta(startedAt)
+              }
+            )
+    };
+  }
+
+  if (command === "compact-memory") {
+    const apply = booleanOption(options, "apply", false);
+    const compactResult = await runMemoryCompact({
+      cwd: process.cwd(),
+      project: options.project,
+      topic: options.topic,
+      baseDir: options["memory-base-dir"],
+      quarantineDir: options["memory-quarantine-dir"],
+      apply
+    });
+    const degraded = compactResult.summary.groups > 0;
+    const metric = buildCommandMetric("compact-memory", startedAt, { degraded });
+    await safeRecordCommandMetric(metric);
+    const payload = {
+      ...compactResult,
+      observability: buildObservabilityEvent(metric)
+    };
+
+    return {
+      exitCode: 0,
+      stdout:
+        format === "text"
+          ? formatMemoryCompactAsText(compactResult)
+          : serializeCommandResult(
+              "compact-memory",
+              payload,
+              format,
+              loadedConfig,
+              {
+                degraded,
+                warnings:
+                  compactResult.summary.groups > 0
+                    ? apply
+                      ? [`${compactResult.summary.created} compacted memory entries created.`]
+                      : [`${compactResult.summary.groups} compaction group(s) available.`]
+                    : [],
+                ...buildRuntimeMeta(startedAt)
+              }
+            )
+    };
+  }
+
   if (command === "ingest") {
     const source = requireOption(options, "source");
     const sourcePath = requireOption(options, "path");
     const project = options.project || "";
     const dryRun = booleanOption(options, "dry-run", false);
-    const memoryClient = getMemoryClient(options, dependencies);
+    const memoryClient = /** @type {MemoryClientLike} */ (getMemoryClient(options, dependencies));
 
     const ingestResult = await runIngestCommand(
       {
@@ -1247,7 +1659,7 @@ export async function runCli(argv, dependencies = {}) {
         dryRun,
         security: loadedConfig.config.security
       },
-      memoryClient
+      /** @type {any} */ (memoryClient)
     );
 
     const metric = buildCommandMetric("ingest", startedAt, {
@@ -1339,7 +1751,7 @@ export async function runCli(argv, dependencies = {}) {
 
   if (command === "recall") {
     const memoryBackend = parseMemoryBackendMode(options["memory-backend"]);
-    const memoryClient = getMemoryClient(options, dependencies);
+    const memoryClient = /** @type {MemoryClientLike} */ (getMemoryClient(options, dependencies));
     const project = options.project;
     const query = options.query;
     const type = options.type;
@@ -1364,7 +1776,7 @@ export async function runCli(argv, dependencies = {}) {
     try {
       result = /** @type {RecallCommandResult} */ (
         query
-          ? await memoryClient.searchMemories(query, {
+          ? await searchMemoryClient(memoryClient, query, {
               project,
               type,
               scope,
@@ -1391,7 +1803,7 @@ export async function runCli(argv, dependencies = {}) {
           type,
           scope,
           limit,
-          provider: memoryBackend === "local-only" ? "local" : "engram"
+          provider: memoryBackend === "local-only" ? "local" : "memory"
         },
         error
       );
@@ -1401,9 +1813,11 @@ export async function runCli(argv, dependencies = {}) {
     }
 
     const recoveredChunks =
-      query && result.stdout
-        ? searchOutputToChunks(result.stdout, { query, project }).length
-        : 0;
+      query && result.entries
+        ? result.entries.length
+        : query && result.stdout?.trim()
+          ? 1
+          : 0;
     const recallStatus = degraded
       ? result?.provider === "local"
         ? query
@@ -1453,16 +1867,32 @@ export async function runCli(argv, dependencies = {}) {
   }
 
   if (command === "remember") {
-    const memoryClient = getMemoryClient(options, dependencies);
-    const result = /** @type {MemoryWriteCommandResult} */ (
-      await memoryClient.saveMemory({
-        title: requireOption(options, "title"),
-        content: getContentOption(options),
-        type: options.type ?? "learning",
-        project: options.project,
-        scope: options.scope ?? "project",
-        topic: options.topic
-      })
+    const memoryClient = /** @type {MemoryClientLike} */ (getMemoryClient(options, dependencies));
+    const writeInput = {
+      title: requireOption(options, "title"),
+      content: getContentOption(options),
+      type: options.type ?? "learning",
+      project: options.project,
+      scope: options.scope ?? "project",
+      topic: options.topic
+    };
+    const hygiene = evaluateMemoryWrite({
+      ...writeInput,
+      sourceKind: "manual"
+    });
+    const result = /** @type {MemoryWriteCommandResult & Record<string, unknown>} */ (
+      hygiene.action === "quarantine"
+        ? await quarantineMemoryWrite({
+            cwd: process.cwd(),
+            quarantineDir: options["memory-quarantine-dir"],
+            ...writeInput,
+            sourceKind: "manual",
+            reasons: hygiene.reasons
+          })
+        : await saveMemoryClient(memoryClient, {
+            ...writeInput,
+            ...buildAcceptedMemoryMetadata(hygiene, { sourceKind: "manual" })
+          })
     );
     const degraded = result?.degraded === true;
     /** @type {string[]} */
@@ -1472,8 +1902,25 @@ export async function runCli(argv, dependencies = {}) {
       warnings.push(result.warning);
     }
 
+    if (hygiene.action === "quarantine") {
+      warnings.push(`Memory write quarantined by hygiene gate (${hygiene.reasons.join(", ")}).`);
+      result.memoryStatus = "quarantined";
+      result.reviewStatus = "quarantined";
+      result.reasons = hygiene.reasons;
+    } else {
+      Object.assign(result, buildAcceptedMemoryMetadata(hygiene, { sourceKind: "manual" }));
+      result.memoryStatus = "accepted";
+      result.reviewStatus = hygiene.reviewStatus;
+      result.reasons = hygiene.reasons;
+    }
+
     const metric = buildCommandMetric("remember", startedAt, { degraded });
     await safeRecordCommandMetric(metric);
+    const rememberPayload = /** @type {Record<string, unknown>} */ ({
+      ...result,
+      observability: buildObservabilityEvent(metric)
+    });
+    delete rememberPayload.warnings;
 
     return {
       exitCode: 0,
@@ -1482,10 +1929,7 @@ export async function runCli(argv, dependencies = {}) {
           ? formatMemoryWriteAsText(result, "Memory saved")
           : serializeCommandResult(
               "remember",
-              {
-                ...result,
-                observability: buildObservabilityEvent(metric)
-              },
+              rememberPayload,
               format,
               loadedConfig,
               {
@@ -1498,17 +1942,50 @@ export async function runCli(argv, dependencies = {}) {
   }
 
   if (command === "close") {
-    const memoryClient = getMemoryClient(options, dependencies);
-    const result = /** @type {MemoryWriteCommandResult} */ (
-      await memoryClient.closeSession({
-        summary: requireOption(options, "summary"),
-        learned: options.learned,
-        next: options.next,
-        title: options.title,
-        project: options.project,
-        scope: options.scope ?? "project",
-        type: options.type ?? "learning"
-      })
+    const memoryClient = /** @type {MemoryClientLike} */ (getMemoryClient(options, dependencies));
+    const closeInput = {
+      summary: requireOption(options, "summary"),
+      learned: options.learned,
+      next: options.next,
+      title: options.title,
+      project: options.project,
+      scope: options.scope ?? "project",
+      type: options.type ?? "learning"
+    };
+    const closePreviewTitle = closeInput.title ?? `Session close - ${new Date().toISOString().slice(0, 10)}`;
+    const closePreviewContent = buildCloseSummaryContent({
+      summary: closeInput.summary,
+      learned: closeInput.learned,
+      next: closeInput.next,
+      workspace: process.cwd(),
+      closedAt: new Date().toISOString()
+    });
+    const hygiene = evaluateMemoryWrite({
+      title: closePreviewTitle,
+      content: closePreviewContent,
+      type: closeInput.type,
+      project: closeInput.project,
+      scope: closeInput.scope,
+      topic: "",
+      sourceKind: "close"
+    });
+    const result = /** @type {MemoryWriteCommandResult & Record<string, unknown>} */ (
+      hygiene.action === "quarantine"
+        ? await quarantineMemoryWrite({
+            cwd: process.cwd(),
+            quarantineDir: options["memory-quarantine-dir"],
+            title: closePreviewTitle,
+            content: closePreviewContent,
+            type: closeInput.type,
+            project: closeInput.project,
+            scope: closeInput.scope,
+            sourceKind: "close",
+            reasons: hygiene.reasons
+          })
+        : await closeMemoryClient(memoryClient, {
+            ...closeInput,
+            ...buildAcceptedMemoryMetadata(hygiene, { sourceKind: "close" })
+          })
     );
     const degraded = result?.degraded === true;
     /** @type {string[]} */
@@ -1518,8 +1995,28 @@ export async function runCli(argv, dependencies = {}) {
       warnings.push(result.warning);
     }
 
+    if (hygiene.action === "quarantine") {
+      warnings.push(`Session close quarantined by hygiene gate (${hygiene.reasons.join(", ")}).`);
+      result.summary = closeInput.summary;
+      result.learned = closeInput.learned ?? "";
+      result.next = closeInput.next ?? "";
+      result.memoryStatus = "quarantined";
+      result.reviewStatus = "quarantined";
+      result.reasons = hygiene.reasons;
+    } else {
+      Object.assign(result, buildAcceptedMemoryMetadata(hygiene, { sourceKind: "close" }));
+      result.memoryStatus = "accepted";
+      result.reviewStatus = hygiene.reviewStatus;
+      result.reasons = hygiene.reasons;
+    }
+
     const metric = buildCommandMetric("close", startedAt, { degraded });
     await safeRecordCommandMetric(metric);
+    const closePayload = /** @type {Record<string, unknown>} */ ({
+      ...result,
+      observability: buildObservabilityEvent(metric)
+    });
+    delete closePayload.warnings;
 
     return {
       exitCode: 0,
@@ -1528,10 +2025,7 @@ export async function runCli(argv, dependencies = {}) {
           ? formatMemoryWriteAsText(result, "Session close note saved")
           : serializeCommandResult(
               "close",
-              {
-                ...result,
-                observability: buildObservabilityEvent(metric)
-              },
+              closePayload,
               format,
               loadedConfig,
               {
@@ -1669,7 +2163,7 @@ export async function runCli(argv, dependencies = {}) {
     };
   }
 
-  const teachMemoryClient = getMemoryClient(options, dependencies);
+  const teachMemoryClient = /** @type {MemoryClientLike} */ (getMemoryClient(options, dependencies));
   const teachResult = await runTeachCommand({
     options,
     loadedConfig,
@@ -1684,7 +2178,7 @@ export async function runCli(argv, dependencies = {}) {
     startedAt,
     dependencies: {
       ...dependencies,
-      engramClient: teachMemoryClient
+      memoryClient: /** @type {any} */ (teachMemoryClient)
     },
     serializeCommandResult,
     buildRuntimeMeta

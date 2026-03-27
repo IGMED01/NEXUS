@@ -4,6 +4,10 @@
 test-output/
 README.LEARN.md
 
+# Documentos estratégicos privados — nunca versionar
+ESTRATEGIA-AGENTES-PRIVADO.md
+*PRIVADO.md
+
 # Downloaded installers / local tools
 engram_*.zip
 tools/engram/

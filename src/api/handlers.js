@@ -19,6 +19,7 @@ import { getCurrentModelConfig, updateModelConfig, getModelConfigHistory } from 
 import { checkAndRollback } from "../versioning/rollback-engine.js";
 import { createSession, getSession, addTurn, buildConversationContext, listSessions, deleteSession } from "../orchestration/conversation-manager.js";
 import { chatCompletion } from "../llm/openrouter-provider.js";
+import { loadApiAxioms, formatApiAxiomsMarkdown } from "./axioms-loader.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -73,6 +74,14 @@ function optionalNumber(body, field) {
   }
 
   return value;
+}
+
+/**
+ * @param {string | undefined} value
+ * @returns {boolean}
+ */
+function parseBooleanQuery(value) {
+  return value === "true" || value === "1" || value === "yes";
 }
 
 /**
@@ -579,6 +588,41 @@ registerRoute("GET", "/api/score-trend", async (/** @type {ApiRequest} */ req) =
   const trend = await getScoreTrend(project);
 
   return jsonResponse(200, { project, trend });
+});
+
+// ── GET /api/axioms ──────────────────────────────────────────────────
+
+registerRoute("GET", "/api/axioms", async (/** @type {ApiRequest} */ req) => {
+  const project =
+    typeof req.query.project === "string" && req.query.project.trim()
+      ? req.query.project.trim()
+      : typeof req.headers["x-project"] === "string" && req.headers["x-project"].trim()
+        ? req.headers["x-project"].trim()
+        : "learning-context-system";
+  const domain =
+    typeof req.query.domain === "string" && req.query.domain.trim()
+      ? req.query.domain.trim()
+      : undefined;
+  const protectedOnly = parseBooleanQuery(req.query.protectedOnly);
+  const format =
+    typeof req.query.format === "string" && req.query.format.trim()
+      ? req.query.format.trim().toLowerCase()
+      : "json";
+  const dataDir =
+    typeof req.headers["x-data-dir"] === "string" && req.headers["x-data-dir"].trim()
+      ? req.headers["x-data-dir"].trim()
+      : process.cwd();
+
+  const payload = await loadApiAxioms({ project, dataDir, domain, protectedOnly });
+
+  if (format === "markdown") {
+    return jsonResponse(200, {
+      ...payload,
+      markdown: formatApiAxiomsMarkdown(payload)
+    });
+  }
+
+  return jsonResponse(200, payload);
 });
 
 // ── POST /api/chat (LLM completion with optional context) ────────────

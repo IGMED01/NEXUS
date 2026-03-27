@@ -46,18 +46,18 @@ export function classifyMemoryFailure(error) {
  */
 export function memoryFailureFixHint(failureKind) {
   if (failureKind === "binary-missing") {
-    return "Verify --engram-bin path or learning-context.config.json -> engram.binaryPath.";
+    return "Verify the external memory runtime (Ruflo) is available, or use --memory-backend local-only / --skip-ruflo true.";
   }
 
   if (failureKind === "timeout") {
-    return "Retry recall, reduce query scope, and verify Engram runtime health.";
+    return "Retry recall, reduce query scope, or bypass the external memory tier with --skip-ruflo true.";
   }
 
   if (failureKind === "malformed-output") {
-    return "Update Engram and validate output format with doctor + recall --debug.";
+    return "Run doctor and validate the external memory provider output before enabling semantic recall.";
   }
 
-  return "Run doctor and verify Engram binary and data directory settings.";
+  return "Run doctor and verify the configured memory backend and local fallback settings.";
 }
 
 /**
@@ -65,14 +65,14 @@ export function memoryFailureFixHint(failureKind) {
  * @param {unknown} error
  * @returns {string}
  */
-function fallbackWarning(operation, error) {
+function fallbackWarning(operation, error, fallbackDescription = "local fallback memory store") {
   const kind = classifyMemoryFailure(error);
-  return `Engram failed during ${operation}; using local fallback memory store (${kind}).`;
+  return `Primary memory backend failed during ${operation}; using ${fallbackDescription} (${kind}).`;
 }
 
 /**
  * Creates a resilient memory client that implements MemoryProvider.
- * Tries primary (Engram) first, falls back to local store on failure.
+ * Tries the primary provider first, then falls back to the local store on failure.
  *
  * @param {{
  *   primary: {
@@ -101,13 +101,17 @@ function fallbackWarning(operation, error) {
  *     saveMemory: (input: MemorySaveInput) => Promise<Record<string, unknown>>,
  *     closeSession: (input: MemoryCloseInput) => Promise<Record<string, unknown>>
  *   },
- *   enabled?: boolean
+ *   enabled?: boolean,
+ *   fallbackDescription?: string
  * }} input
  */
 export function createResilientMemoryClient(input) {
   const enabled = input.enabled !== false;
   const primary = input.primary;
   const fallback = input.fallback;
+  const fallbackDescription = input.fallbackDescription ?? "local fallback memory store";
+  const primaryProviderName = primary.name ?? "primary";
+  const fallbackProviderName = fallback.name ?? "local";
 
   /**
    * @template T
@@ -119,9 +123,16 @@ export function createResilientMemoryClient(input) {
   async function withFallback(operation, runPrimary, runFallback) {
     try {
       const result = await runPrimary();
+      const resultRecord = /** @type {T & Record<string, unknown>} */ (result);
       return {
-        ...(/** @type {T & Record<string, unknown>} */ (result)),
-        provider: "engram"
+          ...resultRecord,
+          provider:
+            typeof resultRecord.provider === "string" && resultRecord.provider.trim()
+            ? resultRecord.provider
+            : primaryProviderName,
+          providerChain: Array.isArray(resultRecord.providerChain)
+            ? resultRecord.providerChain
+            : [primaryProviderName]
       };
     } catch (primaryError) {
       if (!enabled) {
@@ -129,13 +140,21 @@ export function createResilientMemoryClient(input) {
       }
 
       const failureKind = classifyMemoryFailure(primaryError);
-      const warning = fallbackWarning(operation, primaryError);
+      const warning = fallbackWarning(operation, primaryError, fallbackDescription);
 
       try {
         const fallbackResult = await runFallback();
+        const fallbackRecord = /** @type {T & Record<string, unknown>} */ (fallbackResult);
         return {
-          ...(/** @type {T & Record<string, unknown>} */ (fallbackResult)),
-          provider: "local",
+          ...fallbackRecord,
+          provider:
+            typeof fallbackRecord.provider === "string" && fallbackRecord.provider.trim()
+              ? fallbackRecord.provider
+              : fallbackProviderName,
+          providerChain: Array.isArray(fallbackRecord.providerChain)
+            ? fallbackRecord.providerChain
+            : [primaryProviderName, fallbackProviderName],
+          fallbackProvider: fallbackProviderName,
           degraded: true,
           warning,
           error: toErrorMessage(primaryError),
@@ -231,7 +250,7 @@ export function createResilientMemoryClient(input) {
     async health() {
       const primaryHealth = primary.health
         ? await primary.health()
-        : { healthy: false, provider: "engram", detail: "health() not implemented" };
+        : { healthy: false, provider: primaryProviderName, detail: "health() not implemented" };
 
       if (primaryHealth.healthy) {
         return primaryHealth;

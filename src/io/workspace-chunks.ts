@@ -1,6 +1,12 @@
 import { readFile, readdir } from "node:fs/promises";
 import { extname, relative, resolve } from "node:path";
 import { smartChunk as chunkDocument } from "../processing/chunker.js";
+import {
+  extractCodeSymbols,
+  summarizeCodeSymbolsForChunk,
+  supportsCodeSymbolExtraction,
+  type ChunkSymbolSummary
+} from "../processing/code-symbol-extractor.js";
 import { extractEntities } from "../processing/entity-extractor.js";
 import { tagChunk as tagChunkMetadata } from "../processing/metadata-tagger.js";
 
@@ -47,6 +53,13 @@ interface ChunkSignals {
   recency: number;
   teachingValue: number;
   priority: number;
+}
+
+interface ChunkProcessingMetadata {
+  section: unknown;
+  tags: unknown;
+  entities: unknown[];
+  symbols?: ChunkSymbolSummary;
 }
 
 type SecurityPolicy = ReturnType<typeof resolveSecurityPolicy>;
@@ -256,6 +269,13 @@ export async function loadWorkspaceChunks(
       ? `${redaction.content.slice(0, MAX_FILE_CHARS)}\n/* file truncated for context scan */`
       : redaction.content;
     const kind = classifyKind(file.source);
+    const symbolGraph =
+      (kind === "code" || kind === "test") && supportsCodeSymbolExtraction(file.source)
+        ? extractCodeSymbols({
+            source: file.source,
+            content
+          })
+        : undefined;
 
     stats.includedFiles += 1;
     stats.kinds[kind] += 1;
@@ -303,11 +323,7 @@ export async function loadWorkspaceChunks(
       } as Parameters<typeof tagChunkMetadata>[0]);
       const entities: unknown[] = options.processing?.extractEntities === false ? [] : [extractEntities(processed.content)];
       const chunk: Chunk & {
-        processing?: {
-          section: unknown;
-          tags: unknown;
-          entities: unknown[];
-        };
+        processing?: ChunkProcessingMetadata;
       } = {
         id: processed.id || file.source,
         source: file.source,
@@ -316,11 +332,15 @@ export async function loadWorkspaceChunks(
         ...defaultSignals(kind)
       };
 
-      chunk.processing = {
+      (chunk as unknown as Record<string, unknown>).processing = {
         section: (processed as Record<string, unknown>).metadata,
         tags,
-        entities
-      };
+        entities,
+        symbols: summarizeCodeSymbolsForChunk(
+          symbolGraph,
+          (processed as { metadata?: { startLine?: number; endLine?: number } }).metadata
+        )
+      } satisfies ChunkProcessingMetadata;
 
       chunks.push(chunk);
     }

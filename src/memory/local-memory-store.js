@@ -3,7 +3,7 @@
 import { mkdir, readFile, writeFile, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { createChunkRepository } from "../storage/chunk-repository.js";
-import { buildCloseSummaryContent } from "./engram-client.js";
+import { buildCloseSummaryContent } from "./memory-utils.js";
 
 /**
  * @typedef {import("../types/core-contracts.d.ts").MemoryEntry} MemoryEntry
@@ -285,7 +285,8 @@ async function readEntries(filePath) {
           project: typeof candidate.project === "string" ? candidate.project : "",
           scope: typeof candidate.scope === "string" ? candidate.scope : "project",
           topic: typeof candidate.topic === "string" ? candidate.topic : "",
-          createdAt
+          createdAt,
+          ...extractHygieneMetadata(candidate)
         });
       } catch {
         // ignore malformed local line
@@ -317,6 +318,51 @@ function asRecord(value) {
     return /** @type {Record<string, unknown>} */ (value);
   }
   return {};
+}
+
+/**
+ * @param {Record<string, unknown>} record
+ * @returns {Record<string, unknown>}
+ */
+function extractHygieneMetadata(record) {
+  /** @type {Record<string, unknown>} */
+  const metadata = {};
+
+  if (typeof record.sourceKind === "string" && record.sourceKind.trim()) {
+    metadata.sourceKind = record.sourceKind.trim();
+  }
+
+  if (typeof record.reviewStatus === "string" && record.reviewStatus.trim()) {
+    metadata.reviewStatus = record.reviewStatus.trim();
+  }
+
+  if (typeof record.protected === "boolean") {
+    metadata.protected = record.protected;
+  }
+
+  for (const key of ["signalScore", "duplicateScore", "durabilityScore", "healthScore"]) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      metadata[key] = value;
+    }
+  }
+
+  if (typeof record.expiresAt === "string" && record.expiresAt.trim()) {
+    metadata.expiresAt = record.expiresAt.trim();
+  }
+
+  if (Array.isArray(record.supersedes) && record.supersedes.every((item) => typeof item === "string")) {
+    metadata.supersedes = [...record.supersedes];
+  }
+
+  if (
+    Array.isArray(record.reviewReasons) &&
+    record.reviewReasons.every((item) => typeof item === "string")
+  ) {
+    metadata.reviewReasons = [...record.reviewReasons];
+  }
+
+  return metadata;
 }
 
 /**
@@ -364,7 +410,8 @@ function mapChunksToEntries(chunks) {
             : "project",
         topic:
           typeof metadata.topic === "string" ? metadata.topic : "",
-        createdAt
+        createdAt,
+        ...extractHygieneMetadata(metadata)
       };
     })
     .sort((/** @type {MemoryEntry} */ left, /** @type {MemoryEntry} */ right) => right.createdAt.localeCompare(left.createdAt));
@@ -602,7 +649,8 @@ export function createLocalMemoryStore(options = {}) {
       project: input.project ?? "",
       scope: input.scope ?? "project",
       topic: input.topic ?? "",
-      createdAt
+      createdAt,
+      ...extractHygieneMetadata(asRecord(input))
     };
 
     entries.push(entry);
@@ -800,7 +848,8 @@ export function createLocalMemoryStore(options = {}) {
       content,
       type: input.type ?? "learning",
       project: input.project,
-      scope: input.scope ?? "project"
+      scope: input.scope ?? "project",
+      ...extractHygieneMetadata(asRecord(input))
     });
 
     return {

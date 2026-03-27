@@ -1,9 +1,16 @@
 import { buildLearningPacket } from "../learning/mentor-loop.js";
-import { createEngramClient } from "../memory/engram-client.js";
+import { createLocalMemoryStore } from "../memory/local-memory-store.js";
+import { legacySearchStdoutToEntries } from "../memory/memory-utils.js";
+import { createResilientMemoryClient } from "../memory/resilient-memory-client.js";
+import {
+  buildAcceptedMemoryMetadata,
+  evaluateMemoryWrite,
+  quarantineMemoryWrite
+} from "../memory/memory-hygiene.js";
 import {
   buildTeachAutoRememberPayload,
   resolveAutoTeachRecall
-} from "../memory/engram-auto-orchestrator.js";
+} from "../memory/memory-auto-orchestrator.js";
 import { formatLearningPacketAsText } from "./formatters.js";
 import {
   assertNumberRules,
@@ -15,9 +22,11 @@ import {
 import type {
   Chunk,
   CliContractMeta,
-  EngramSearchOptions,
-  EngramSearchResult,
   LearningPacket,
+  MemoryCloseInput,
+  MemorySearchOptions,
+  MemorySearchResult,
+  MemorySaveInput,
   MemoryRecallState,
   RuntimeMeta,
   ScanStats
@@ -41,6 +50,7 @@ interface LearningPacketWithMemory extends LearningPacket {
     autoRememberEnabled: boolean;
     rememberAttempted: boolean;
     rememberSaved: boolean;
+    rememberStatus?: string;
     rememberTitle: string;
     rememberError: string;
     rememberRedactionCount: number;
@@ -67,32 +77,20 @@ interface ChunkSourceResult {
 }
 
 interface MemoryClientLike {
+  search?: (query: string, options?: MemorySearchOptions) => Promise<MemorySearchResult>;
+  searchMemories?: (
+    query: string,
+    options?: MemorySearchOptions
+  ) => Promise<Record<string, unknown> & { stdout?: string }>;
+  save?: (input: MemorySaveInput) => Promise<Record<string, unknown>>;
+  saveMemory?: (input: MemorySaveInput) => Promise<Record<string, unknown>>;
   config?: { dataDir?: string };
   recallContext: (project?: string) => Promise<Record<string, unknown>>;
-  searchMemories: (
-    query: string,
-    options?: EngramSearchOptions
-  ) => Promise<EngramSearchResult & Record<string, unknown>>;
-  saveMemory: (input: {
-    title: string;
-    content: string;
-    type?: string;
-    project?: string;
-    scope?: string;
-    topic?: string;
-  }) => Promise<Record<string, unknown>>;
-  closeSession: (input: {
-    summary: string;
-    learned?: string;
-    next?: string;
-    title?: string;
-    project?: string;
-    scope?: string;
-    type?: string;
-  }) => Promise<Record<string, unknown>>;
+  closeSession: (input: MemoryCloseInput) => Promise<Record<string, unknown>>;
 }
 
 interface AppDependencies {
+  memoryClient?: MemoryClientLike;
   engramClient?: MemoryClientLike;
 }
 
@@ -121,18 +119,91 @@ interface RunTeachCommandInput {
   ) => RuntimeMeta;
 }
 
-function getEngramClient(
+function getMemoryClient(
   options: CliOptions,
   dependencies: AppDependencies = {}
 ): MemoryClientLike {
+  if (dependencies.memoryClient) {
+    return dependencies.memoryClient;
+  }
+
   if (dependencies.engramClient) {
     return dependencies.engramClient;
   }
 
-  return createEngramClient({
-    binaryPath: options["engram-bin"],
-    dataDir: options["engram-data-dir"]
+  const local = createLocalMemoryStore({
+    filePath: options["memory-fallback-file"],
+    baseDir: options["memory-base-dir"]
   });
+
+  return createResilientMemoryClient({ primary: local, fallback: local }) as unknown as MemoryClientLike;
+}
+
+async function searchMemoryClient(
+  memoryClient: MemoryClientLike,
+  query: string,
+  options: MemorySearchOptions = {}
+): Promise<MemorySearchResult> {
+  if (typeof memoryClient.search === "function") {
+    const result = await memoryClient.search(query, options);
+    if (Array.isArray(result?.entries)) {
+      return result;
+    }
+
+    const stdout = typeof result?.stdout === "string" ? result.stdout : "";
+    return {
+      ...result,
+      entries: legacySearchStdoutToEntries(stdout, { project: options.project }),
+      stdout,
+      provider:
+        typeof result?.provider === "string" && result.provider.trim()
+          ? result.provider
+          : "memory"
+    } as MemorySearchResult;
+  }
+
+  if (typeof memoryClient.searchMemories !== "function") {
+    throw new Error("Legacy searchMemories() is not supported by the configured memory client.");
+  }
+
+  const legacyResult = await memoryClient.searchMemories(query, options);
+  const stdout = typeof legacyResult.stdout === "string" ? legacyResult.stdout : "";
+  return {
+    entries: legacySearchStdoutToEntries(stdout, { project: options.project }),
+    stdout,
+    provider:
+      typeof legacyResult.provider === "string" && legacyResult.provider.trim()
+        ? legacyResult.provider
+        : "memory"
+  } as MemorySearchResult;
+}
+
+async function saveMemoryClient(
+  memoryClient: MemoryClientLike,
+  input: MemorySaveInput
+): Promise<Record<string, unknown>> {
+  if (typeof memoryClient.save === "function") {
+    return memoryClient.save(input);
+  }
+
+  if (typeof memoryClient.saveMemory === "function") {
+    return memoryClient.saveMemory(input);
+  }
+
+  throw new Error("save()/saveMemory() not supported by the configured memory client.");
+}
+
+function isMemorySelectionChunk(chunk: {
+  kind?: string;
+  source?: string;
+  origin?: string;
+}): boolean {
+  return (
+    chunk.kind === "memory" ||
+    String(chunk.source ?? "").startsWith("engram://") ||
+    String(chunk.source ?? "").startsWith("memory://") ||
+    chunk.origin === "memory"
+  );
 }
 
 function booleanOption(options: CliOptions, key: string, fallback = false): boolean {
@@ -215,7 +286,7 @@ export async function runTeachCommand(input: RunTeachCommandInput): Promise<{
   const objective = requireOption(options, "objective");
   const changedFiles = listOption(options, "changed-files");
   const focus = options.focus ?? `${task} ${objective}`;
-  const engram = getEngramClient(options, dependencies);
+  const memoryClient = getMemoryClient(options, dependencies);
   const memoryScope = options["memory-scope"] ?? "project";
   const memoryType = options["memory-type"];
   const noRecall = booleanOption(options, "no-recall", false);
@@ -248,7 +319,8 @@ export async function runTeachCommand(input: RunTeachCommandInput): Promise<{
     type: memoryType,
     strictRecall,
     baseChunks: payload.chunks,
-    searchMemories: engram.searchMemories
+    search: (query: string, searchOptions?: MemorySearchOptions) =>
+      searchMemoryClient(memoryClient, query, searchOptions ?? {})
   });
   const packet = buildLearningPacket({
     task,
@@ -263,10 +335,10 @@ export async function runTeachCommand(input: RunTeachCommandInput): Promise<{
     debug: debugEnabled
   });
   const selectedMemoryChunkIds = packet.selectedContext
-    .filter((chunk) => chunk.source.startsWith("engram://"))
+    .filter((chunk) => isMemorySelectionChunk(chunk))
     .map((chunk) => chunk.id);
   const suppressedMemoryChunkIds = packet.suppressedContext
-    .filter((chunk) => String(chunk.id).startsWith("engram-memory-"))
+    .filter((chunk) => isMemorySelectionChunk(chunk))
     .map((chunk) => chunk.id);
   const packetWithMemory = {
     ...packet,
@@ -289,6 +361,7 @@ export async function runTeachCommand(input: RunTeachCommandInput): Promise<{
     autoRememberEnabled: autoRemember,
     rememberAttempted: false,
     rememberSaved: false,
+    rememberStatus: "idle",
     rememberTitle: "",
     rememberError: "",
     rememberRedactionCount: 0,
@@ -313,23 +386,52 @@ export async function runTeachCommand(input: RunTeachCommandInput): Promise<{
       packetWithMemory.autoMemory.rememberRedactionCount = rememberInput.security.redactionCount;
       packetWithMemory.autoMemory.rememberSensitivePathCount =
         rememberInput.security.sensitivePathCount;
-      const rememberResult = await engram.saveMemory({
+      packetWithMemory.autoMemory.rememberTitle = rememberInput.title;
+      const hygiene = evaluateMemoryWrite({
         title: rememberInput.title,
         content: rememberInput.content,
         type: rememberInput.type,
         scope: rememberInput.scope,
-        project: rememberInput.project
+        project: rememberInput.project,
+        sourceKind: "auto-remember"
       });
-      packetWithMemory.autoMemory.rememberSaved = true;
-      packetWithMemory.autoMemory.rememberTitle = rememberInput.title;
-      const rememberWarning =
-        typeof (rememberResult as Record<string, unknown>).warning === "string"
-          ? String((rememberResult as Record<string, unknown>).warning)
-          : "";
-      if (rememberWarning) {
-        packetWithMemory.autoMemory.rememberError = rememberWarning;
+
+      if (hygiene.action === "quarantine") {
+        await quarantineMemoryWrite({
+          cwd: process.cwd(),
+          quarantineDir: options["memory-quarantine-dir"],
+          title: rememberInput.title,
+          content: rememberInput.content,
+          type: rememberInput.type,
+          scope: rememberInput.scope,
+          project: rememberInput.project,
+          sourceKind: "auto-remember",
+          reasons: hygiene.reasons
+        });
+        packetWithMemory.autoMemory.rememberSaved = false;
+        packetWithMemory.autoMemory.rememberStatus = "quarantined";
+        packetWithMemory.autoMemory.rememberError = hygiene.reasons.join(", ");
+      } else {
+        const rememberResult = await saveMemoryClient(memoryClient, {
+          title: rememberInput.title,
+          content: rememberInput.content,
+          type: rememberInput.type,
+          scope: rememberInput.scope,
+          project: rememberInput.project,
+          ...buildAcceptedMemoryMetadata(hygiene, { sourceKind: "auto-remember" })
+        });
+        packetWithMemory.autoMemory.rememberSaved = true;
+        packetWithMemory.autoMemory.rememberStatus = "accepted";
+        const rememberWarning =
+          typeof (rememberResult as Record<string, unknown>).warning === "string"
+            ? String((rememberResult as Record<string, unknown>).warning)
+            : "";
+        if (rememberWarning) {
+          packetWithMemory.autoMemory.rememberError = rememberWarning;
+        }
       }
     } catch (error) {
+      packetWithMemory.autoMemory.rememberStatus = "failed";
       packetWithMemory.autoMemory.rememberError =
         error instanceof Error ? error.message : String(error);
     }
@@ -359,7 +461,13 @@ export async function runTeachCommand(input: RunTeachCommandInput): Promise<{
   }
 
   if (packetWithMemory.autoMemory?.rememberError && !packetWithMemory.autoMemory.rememberSaved) {
-    warnings.push(`Auto remember failed: ${packetWithMemory.autoMemory.rememberError}`);
+    if (packetWithMemory.autoMemory.rememberStatus === "quarantined") {
+      warnings.push(
+        `Auto remember quarantined by hygiene gate: ${packetWithMemory.autoMemory.rememberError}`
+      );
+    } else {
+      warnings.push(`Auto remember failed: ${packetWithMemory.autoMemory.rememberError}`);
+    }
   }
 
   if (packetWithMemory.autoMemory?.rememberSaved && packetWithMemory.autoMemory?.rememberError) {
